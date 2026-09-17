@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ArcDraw: verifiable randomness on Arc</title>
+<meta name="description" content="Draws nobody can rig. ArcDraw brings verifiable drand randomness to Arc smart contracts.">
+<meta property="og:title" content="ArcDraw: verifiable randomness on Arc">
+<meta property="og:description" content="Draws nobody can rig. ArcDraw brings verifiable drand randomness to Arc smart contracts.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232F6BAE'/><text x='16' y='22' font-family='system-ui' font-size='17' font-weight='700' fill='white' text-anchor='middle'>A</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --bg:#FFFFFF; --raised:#FFFFFF; --sunk:#F2F4F7; --line:#DDE2E9; --line-soft:#EBEEF2;
+  --ink:#121826; --muted:#555F6D; --faint:#8A93A0;
+  --accent:#2F6BAE; --accent-soft:#E3ECF6; --on-accent:#FFFFFF;
+  --ok:#23734A; --warn:#94560F; --bad:#AE3D36;
+  --shadow:0 1px 2px rgba(20,40,70,.05),0 12px 32px -16px rgba(20,40,70,.18);
+  --sans:"Geist",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --r-lg:14px; --r-md:8px; --r-sm:4px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;padding-inline:16px}
+.wrap{max-width:1040px;margin:0 auto}
+h1,h2{line-height:1.02;text-wrap:balance;margin:0;font-weight:600;letter-spacing:-.03em}
+p{margin:0;text-wrap:pretty}
+a{color:inherit}
+button,a{transition:background-color .2s ease,border-color .2s ease,color .2s ease,transform .12s ease}
+button{font:inherit;cursor:pointer}
+button:active:not(:disabled){transform:translateY(1px)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 12px;border-radius:var(--r-sm)}
+.skip:focus{left:16px;z-index:10}
+.label{font-size:13px;color:var(--muted);font-weight:500}
+
+/* top bar */
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-block:20px;border-bottom:1px solid var(--line-soft)}
+.brand{font-weight:600;letter-spacing:-.01em;text-decoration:none}
+.brand span{color:var(--faint);font-weight:400;margin-left:8px;font-size:14px}
+.top nav{display:flex;gap:20px;font-size:14px}
+.top nav a{color:var(--muted);text-decoration:none}
+.top nav a:hover{color:var(--ink)}
+
+/* 1 hero */
+.hero{padding-block:72px 64px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:56px;align-items:start}
+.kicker{font-family:var(--mono);font-size:12px;color:var(--accent)}
+.hero h1{font-size:clamp(46px,7.5vw,84px);letter-spacing:-.045em;margin-top:10px;line-height:.95}
+.hero .tag{font-size:21px;color:var(--muted);margin-top:16px;max-width:22ch;line-height:1.3}
+.cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
+.hero dl{margin:0;display:grid;gap:22px;padding-top:34px}
+.hero dt{font-weight:600;font-size:14px}
+.hero dd{margin:4px 0 0;color:var(--muted);max-width:52ch}
+.hero dd b{color:var(--ink);font-weight:600}
+
+.btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:transparent;color:var(--ink);padding:9px 14px;border-radius:var(--r-md);font-size:14px;font-weight:500;text-decoration:none}
+.btn:hover:not(:disabled){border-color:var(--ink);background:var(--sunk)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover:not(:disabled){background:var(--ink);border-color:var(--ink);color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.link{border:0;background:none;color:var(--muted);font-size:14px;padding:9px 4px;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line)}
+.link:hover{color:var(--ink);text-decoration-color:currentColor}
+
+/* section heads */
+.sec{padding-block:56px;border-top:1px solid var(--ink);scroll-margin-top:16px}
+.sec-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:40px;margin-bottom:28px;align-items:end}
+.sec-head h2{font-size:clamp(28px,4vw,38px)}
+.sec-head p{color:var(--muted);max-width:52ch}
+
+/* demo */
+.demo{background:var(--raised);border-radius:var(--r-lg);box-shadow:var(--shadow);outline:1px solid var(--line-soft)}
+.demo-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 20px 12px;border-bottom:1px solid var(--line-soft)}
+.demo-head .t{font-weight:500;font-size:14px}
+.demo-head .s{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.demo-body{padding:22px 20px 24px;display:grid;gap:20px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.say{font-size:15px;min-height:48px;padding:12px 14px;border-radius:var(--r-md);background:var(--sunk)}
+.say.bad{background:color-mix(in srgb,var(--bad) 9%,var(--sunk))}
+.say.good{background:color-mix(in srgb,var(--ok) 9%,var(--sunk))}
+.rules{list-style:none;margin:28px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 48px}
+.rules li{padding-block:12px 14px;border-top:1px solid var(--line);font-size:15px;color:var(--muted)}
+.rules b{color:var(--ink);font-weight:600;margin-right:6px}
+
+/* 3 built */
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:15px}
+th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+thead th{font-size:13px;color:var(--muted);font-weight:500;border-bottom:1px solid var(--line)}
+tbody th{font-weight:600;white-space:nowrap}
+td code,.mono{font-family:var(--mono);font-size:13px}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.status{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:40px;margin-top:40px}
+.dot{font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:8px;color:var(--warn)}
+.dot::before{content:"";width:8px;height:8px;border-radius:2px;background:currentColor}
+.status p{color:var(--muted);margin-top:8px;max-width:44ch}
+.docs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 32px}
+.docs a{display:flex;justify-content:space-between;gap:12px;padding-block:11px;border-top:1px solid var(--line);text-decoration:none;font-size:15px}
+.docs a span{color:var(--faint);font-size:13px}
+.docs a:hover{color:var(--accent)}
+footer{padding-block:28px 56px;border-top:1px solid var(--line-soft);color:var(--faint);font-size:13px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* ArcDraw */
+.steps{display:flex;list-style:none;margin:0;padding:0;border-bottom:1px solid var(--line-soft)}
+.step{flex:1;font-size:13px;color:var(--faint);padding:0 12px 12px 0;position:relative}
+.step b{display:block;font-weight:500;color:inherit}
+.step::after{content:"";position:absolute;left:0;right:12px;bottom:-1px;height:2px;background:transparent;transition:background-color .3s ease}
+.step.on{color:var(--ink)}
+.step.on::after{background:var(--accent)}
+.draw-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:28px}
+.beacon{display:grid;gap:12px;align-content:start}
+.beacon .round{font-family:var(--mono);font-size:38px;font-weight:500;letter-spacing:-.03em;line-height:1}
+.track{display:flex;gap:3px}
+.track span{flex:1;height:28px;border-radius:var(--r-sm);background:var(--sunk);font-family:var(--mono);font-size:10px;display:grid;place-items:center;color:var(--faint)}
+.track span.past{opacity:.45}
+.track span.now{background:var(--ink);color:#fff}
+.track span.pin{background:var(--accent);color:var(--on-accent)}
+.sig{font-family:var(--mono);font-size:11px;word-break:break-all;color:var(--muted);min-height:34px}
+.people{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.person{border-radius:var(--r-md);padding:10px 8px;font-size:14px;display:flex;align-items:center;gap:8px;background:var(--sunk);transition:background-color .3s ease,opacity .3s ease}
+.person .av{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-weight:600;font-size:12px;background:#fff;flex:none}
+.person.win{background:var(--accent-soft)}
+.person.win .av{background:var(--accent);color:var(--on-accent)}
+.person.lose{opacity:.4}
+
+/* ArcPull */
+.plan{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:baseline}
+.plan .price{font-size:30px;font-weight:600;letter-spacing:-.02em}
+.plan .price small{font-size:15px;color:var(--muted);font-weight:400;letter-spacing:0}
+.plan .sub{font-size:13px;color:var(--faint)}
+.pill{font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.pill::before{content:"";width:7px;height:7px;border-radius:2px;background:currentColor}
+.pill.active{color:var(--ok)} .pill.paused{color:var(--warn)} .pill.canceled{color:var(--bad)}
+.months-wrap{overflow-x:auto}
+.months{display:grid;grid-template-columns:repeat(12,minmax(46px,1fr));gap:4px;min-width:580px}
+.m{border-radius:var(--r-sm);padding:8px 6px 12px;font-size:12px;min-height:66px;display:grid;gap:2px;align-content:start;position:relative;background:var(--sunk)}
+.m .lbl{font-family:var(--mono);color:var(--faint);font-size:11px}
+.m .st{font-size:11px;font-weight:500}
+.m.paid{background:var(--accent-soft)} .m.paid .st{color:var(--accent)}
+.m.skip{background:repeating-linear-gradient(135deg,transparent 0 4px,var(--line-soft) 4px 5px)}
+.m.skip .st{color:var(--faint)}
+.m.now{box-shadow:inset 0 0 0 1.5px var(--ink)}
+.m.future{opacity:.45}
+.m.access::after{content:"";position:absolute;left:6px;right:6px;bottom:5px;height:3px;border-radius:2px;background:var(--ok)}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.balances{display:flex;gap:40px;flex-wrap:wrap}
+.bal .k{font-size:13px;color:var(--muted)}
+.bal .v{font-family:var(--mono);font-size:22px;letter-spacing:-.02em}
+
+/* MemoKit */
+.modes{display:inline-flex;padding:3px;background:var(--sunk);border-radius:var(--r-md);gap:2px}
+.modes button{border:0;background:transparent;color:var(--muted);padding:7px 12px;font-size:14px;border-radius:6px}
+.modes button:hover{color:var(--ink)}
+.modes button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(20,40,70,.12)}
+.memo-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}
+.col-h{font-size:13px;color:var(--muted);font-weight:500;margin-bottom:10px}
+.invoices,.feed{display:grid;gap:6px;align-content:start}
+.inv{padding:12px 14px;border-radius:var(--r-md);background:var(--sunk);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:center}
+.inv .who{font-weight:600}
+.inv .ref{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.inv .amt{font-family:var(--mono);font-size:18px;grid-row:span 3;text-align:right}
+.stamp{font-size:12px;font-weight:500;margin-top:4px}
+.stamp.open{color:var(--faint)} .stamp.paid{color:var(--ok)} .stamp.review{color:var(--warn)}
+.tx{border-radius:var(--r-md);padding:10px 12px;border:1px solid var(--line-soft);font-size:13px;display:grid;gap:3px;animation:in .3s ease}
+.tx .l1{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono)}
+.tx .memo{font-family:var(--mono);font-size:11px;color:var(--accent);word-break:break-all}
+.tx .verdict{font-size:13px;font-weight:500}
+.tx .verdict.ok{color:var(--ok)} .tx .verdict.q{color:var(--warn)}
+.feed .empty{font-size:14px;color:var(--faint);padding:12px 0}
+@keyframes in{from{transform:translateY(-4px);opacity:.3}to{transform:none;opacity:1}}
+
+@media (max-width:780px){
+  .hero,.sec-head,.draw-grid,.memo-grid,.status{grid-template-columns:minmax(0,1fr);gap:20px}
+  .hero{padding-block:44px 40px}
+  .hero dl{padding-top:8px}
+  .top nav{gap:14px}
+  .top nav .hide-sm{display:none}
+  .rules,.docs{grid-template-columns:minmax(0,1fr)}
+  .people{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .steps{flex-wrap:wrap;row-gap:8px}
+  .step{flex:1 1 45%}
+  .sec{padding-block:40px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip" href="#demo">Skip to the demo</a>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./">ArcDraw<span>on Arc</span></a>
+    <nav aria-label="Page">
+      <a href="#demo" class="hide-sm">Demo</a>
+      <a href="#built" class="hide-sm">What's built</a>
+      <a href="https://github.com/r4topunk/arcdraw">GitHub</a>
+    </nav>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="h1">
+      <div>
+        <span class="kicker">Randomness for Arc</span>
+        <h1 id="h1">ArcDraw</h1>
+        <p class="tag">Draws nobody can rig.</p>
+        <div class="cta">
+          <a class="btn primary" href="#demo">Try the demo</a>
+          <a class="btn" href="https://github.com/r4topunk/arcdraw">View on GitHub</a>
+        </div>
+      </div>
+      <dl>
+        <div><dt>The problem</dt><dd>Every block on Arc has a random value of zero. Without real randomness, contracts can't run lotteries, raffles or fair allocations.</dd></div>
+        <div><dt>The solution</dt><dd><a href="https://drand.love">drand</a> is a network of universities and companies that publishes a signed random number every 3 seconds. ArcDraw pins a <b>future</b> round and checks its BLS signature inside the contract, using Arc's built-in BLS12-381 precompiles.</dd></div>
+      </dl>
+    </section>
+
+    <section class="sec" id="demo" aria-labelledby="h-demo">
+      <div class="sec-head">
+        <h2 id="h-demo">See how it works</h2>
+        <p>Click through a draw. The contract picks a round that doesn't exist yet, so nobody can know the winners in advance.</p>
+      </div>
+      <div class="demo">
+        <div class="demo-head"><span class="t">A sale with more buyers than spots</span><span class="s">simulation, sped up</span></div>
+        <div class="demo-body">
+        <ol class="steps" id="d-steps">
+          <li class="step" data-s="1"><b>Request</b>pin a future round</li>
+          <li class="step" data-s="2"><b>Wait</b>nobody knows the number</li>
+          <li class="step" data-s="3"><b>Prove</b>signature checked</li>
+          <li class="step" data-s="4"><b>Draw</b>winners come from it</li>
+        </ol>
+        <div class="draw-grid">
+          <div class="beacon">
+            <span class="label">Current drand round</span>
+            <div class="round" id="d-round">#32,275,889</div>
+            <div class="track" id="d-track" aria-hidden="true"></div>
+            <div class="sig" id="d-sig">Signature: waiting for a request</div>
+          </div>
+          <div style="display:grid;gap:10px;align-content:start">
+            <span class="label">8 people, 3 spots</span>
+            <div class="people" id="d-people"></div>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="d-go">Request draw</button>
+          <button class="link" id="d-reset">Start over</button>
+        </div>
+        <p class="say" id="d-say" aria-live="polite">Click "Request draw". The contract will pin a round that hasn't happened yet.</p>
+        </div>
+      </div>
+      <ul class="rules">
+      <li><b>Why it's fair.</b>The round is chosen before it exists. Neither the requester nor the operator knows the result.</li>
+      <li><b>Who delivers it.</b>Anyone can bring the proof to the contract and earn an optional USDC bounty.</li>
+      <li><b>What it costs.</b>Verifying the proof onchain costs about 0.006 USDC.</li>
+      <li><b>Who can check.</b>Anyone can redo the math with the same signature and get the same winners.</li>
+      </ul>
+    </section>
+
+    <section class="sec" id="built" aria-labelledby="h-built">
+      <div class="sec-head">
+        <h2 id="h-built">What's built</h2>
+        <p>An open-source, MIT-licensed building block. The rules live in the contract. The rest helps apps and people use them.</p>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Part</th><th>What it does</th><th>Tests</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Contract</th><td><code>ArcDrawCoordinator</code> checks drand signatures onchain, plus a <code>FairAllocation</code> demo that refunds losers in full</td><td class="num">142 Foundry tests</td></tr>
+            <tr><th scope="row">SDK</th><td><code>@arcdraw/sdk</code> to request randomness and verify results</td><td class="num">27 tests</td></tr>
+            <tr><th scope="row">Service</th><td>Permissionless relayer that fetches rounds from drand and delivers them</td><td class="num">26 tests</td></tr>
+            <tr><th scope="row">Site</th><td>Request a draw and inspect any past result</td><td class="num">Next.js static</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="status">
+        <div>
+          <span class="dot">Mainnet deploy in progress</span>
+          <p>Built and tested locally against an Arc mainnet fork. Contract addresses and proof transactions will be listed in the repository once deployed.</p>
+        </div>
+        <ul class="docs">
+          <li><a href="https://github.com/r4topunk/arcdraw/blob/main/README.md">README<span>README.md</span></a></li>
+          <li><a href="https://github.com/r4topunk/arcdraw/blob/main/apps/web/content/integration.md">Integration guide<span>apps/web/content/integration.md</span></a></li>
+          <li><a href="https://github.com/r4topunk/arcdraw/blob/main/docs/SPEC.md">Spec<span>docs/SPEC.md</span></a></li>
+          <li><a href="https://github.com/r4topunk/arcdraw/blob/main/docs/GAS.md">Gas costs<span>docs/GAS.md</span></a></li>
+          <li><a href="https://github.com/r4topunk/arcdraw/blob/main/docs/PRD.md">Product doc<span>docs/PRD.md</span></a></li>
+          <li><a href="https://github.com/r4topunk/arcdraw/blob/main/DEPLOY.md">Deploy runbook<span>DEPLOY.md</span></a></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <span>ArcDraw · MIT license · experimental, not externally audited</span>
+    <span>The demo simulates the contract rules. No wallet or real money involved.</span>
+  </footer>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => n.toFixed(2);
+const hex = n => Array.from({length:n},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+
+(() => {
+  const NAMES = ['Ana','Ben','Carla','David','Elisa','Felix','Grace','Hugo'];
+  const SLOTS = 3, DELAY = 4, START = 32275889;
+  let round = START, pinned = null, done = false;
+  const people = $('d-people');
+  NAMES.forEach(n => { const d = document.createElement('div'); d.className = 'person'; d.innerHTML = `<div class="av">${n[0]}</div>${n}`; people.appendChild(d); });
+  const cards = [...people.children];
+  const steps = [...document.querySelectorAll('#d-steps .step')];
+  const setStep = s => steps.forEach(el => el.classList.toggle('on', +el.dataset.s <= s));
+  const nf = n => '#' + n.toLocaleString('en-US');
+  const intro = 'Click "Request draw". The contract will pin a round that hasn\'t happened yet.';
+  function drawTrack(){
+    const t = $('d-track'); t.innerHTML = '';
+    const base = pinned ? pinned - DELAY : round;
+    for (let i = 0; i <= DELAY + 1; i++){
+      const r = base + i, s = document.createElement('span');
+      s.textContent = '…' + String(r).slice(-2);
+      if (r < round) s.className = 'past';
+      if (r === round) s.className = 'now';
+      if (pinned && r === pinned) s.className = 'pin';
+      t.appendChild(s);
+    }
+    $('d-round').textContent = nf(round);
+  }
+  function tick(){
+    round++; drawTrack();
+    if (pinned && !done){
+      const left = pinned - round;
+      if (left > 0) $('d-say').textContent = `${left} round${left>1?'s':''} to go until ${nf(pinned)}. Nobody knows the number yet, not even the operator.`;
+      else finish();
+    }
+  }
+  function finish(){
+    done = true; setStep(3);
+    const sig = hex(96);
+    $('d-sig').textContent = 'Signature: 0x' + sig;
+    $('d-say').className = 'say good';
+    $('d-say').textContent = `Round ${nf(pinned)} is out. The contract checked its BLS signature against the drand public key: valid.`;
+    setTimeout(() => {
+      setStep(4);
+      let seed = parseInt(sig.slice(0,8),16);
+      const order = NAMES.map((n,i)=>i);
+      for (let i = order.length-1; i > 0; i--){ seed = (seed * 1103515245 + 12345) % 2147483648; const j = seed % (i+1); [order[i],order[j]] = [order[j],order[i]]; }
+      const winners = new Set(order.slice(0,SLOTS));
+      cards.forEach((c,i) => c.classList.add(winners.has(i) ? 'win' : 'lose'));
+      $('d-say').textContent = `Winners: ${[...winners].map(i=>NAMES[i]).join(', ')}. Everyone else gets their USDC back. Anyone can redo the math with the same signature.`;
+    }, 900);
+  }
+  $('d-go').onclick = () => {
+    if (pinned) return;
+    pinned = round + DELAY; setStep(2); drawTrack();
+    $('d-go').disabled = true;
+    $('d-sig').textContent = 'Signature: does not exist yet';
+    $('d-say').className = 'say';
+    $('d-say').textContent = `Request recorded. The contract pinned round ${nf(pinned)}, which hasn't happened yet.`;
+  };
+  $('d-reset').onclick = () => {
+    pinned = null; done = false; setStep(0);
+    cards.forEach(c => c.classList.remove('win','lose'));
+    $('d-go').disabled = false; $('d-sig').textContent = 'Signature: waiting for a request';
+    $('d-say').className = 'say'; $('d-say').textContent = intro;
+    drawTrack();
+  };
+  setStep(0); drawTrack();
+  setInterval(tick, matchMedia('(prefers-reduced-motion: reduce)').matches ? 2200 : 1400);
+})();
+</script>
+</body>
+</html>
