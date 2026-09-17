@@ -22,6 +22,7 @@ keystore/
 
 # relayer runtime state
 services/relayer/.state/
+.state/
 
 # misc
 .DS_Store

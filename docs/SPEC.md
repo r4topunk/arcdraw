@@ -273,6 +273,13 @@ export function createArcDraw(cfg: { publicClient: PublicClient; walletClient?: 
 };
 ```
 
+Stage 3 implementation notes (`packages/sdk`): `createArcDraw` also exposes `getRequests(ids)` (unknown ids map to
+`undefined`), `getRoundRandomness(round)`, `getBeacon(round)`, `simulateFulfillBatch(round, ids, { account })`
+(eth_call + estimateGas only, used by the relayer dry-run) and `scanLogs(...)` (per-window `{ requested, fulfilled }`,
+which `scanRequests` wraps). `fulfill`/`fulfillBatch` send an empty signature when the round is already verified.
+Chains are exported as `arcMainnet`/`arcTestnet` (viem's `arc` ships without RPC URLs). `deployments` is generated from
+`deployments/*.json` and omits chains with no coordinator address. Errors: `ArcDrawError` subclasses with a `code`.
+
 Tests (vitest): round math matches the Solidity vectors, `verifyBeacon` passes on rounds 1000000/1000001 and fails on a swapped round, `deriveRandomness` matches a forge-generated vector, and the scanner chunks correctly against a mocked transport.
 
 ## 7. Relayer (`@arcdraw/relayer`)
@@ -298,6 +305,10 @@ loop every RELAYER_POLL_MS:
 - **Signer**: `RELAYER_PRIVATE_KEY` from env (placeholder in `.env.example`) via `privateKeyToAccount`. The relayer never logs the key.
 - **Failure handling**: a revert with `RequestNotFulfillable` means a race was lost, logged at info. A drand fetch failure gets exponential backoff up to 30s. The RPC error budget is 5 consecutive failures, then exit(1) so the supervisor restarts it.
 - **Health**: `GET /healthz` returns `{lastTickAt, pending, lastScannedBlock}` (optional port).
+- **Stage 3 implementation notes** (`services/relayer`): the state file also records `inflight` tx hashes per round, so a
+  restart checks the receipt before resubmitting. Dry-run (`RELAYER_DRY_RUN=true`) needs no key and stops after
+  simulation. `RELAYER_MIN_BOUNTY` is a decimal USDC amount. "Due" is judged by the head block timestamp, not wall
+  clock. Tick ids are 8 hex chars (`randomUUID`), not ULIDs. Full env table: `services/relayer/README.md`.
 - **Metrics in logs**: `fulfilled_total`, `batch_size`, `latency_ms`, `gas_used`.
 
 ## 8. Web (`apps/web`)

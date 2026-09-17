@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Regenerates packages/sdk/src/generated/abis.ts from Foundry artifacts.
 // Usage: (cd contracts && forge build) && node packages/sdk/scripts/export-abis.mjs [--check]
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 

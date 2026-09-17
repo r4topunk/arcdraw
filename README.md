@@ -23,6 +23,20 @@ cd contracts && forge build && forge test
 ARC_FORK_TESTS=true forge test --match-path 'test/fork/*' --threads 1   # optional, read-only Arc mainnet fork
 ```
 
+## SDK and relayer
+
+| Package | What |
+|---|---|
+| [`@arcdraw/sdk`](packages/sdk/README.md) | viem client: request, wait, fulfill, refund, scan logs; drand fetch + offchain BLS verification; `arcMainnet`/`arcTestnet` |
+| [`@arcdraw/relayer`](services/relayer/README.md) | Permissionless fulfiller: log cursor, batch per round, retries, JSON logs with correlation ids, dry-run, `/healthz`, Dockerfile |
+
+```bash
+pnpm install
+pnpm build && pnpm typecheck && pnpm lint
+pnpm test                                   # forge tests, then vitest (relayer e2e runs on a local anvil)
+RELAYER_DRY_RUN=true COORDINATOR_ADDRESS=0x… pnpm relayer:dry-run   # read-only: simulates, never sends
+```
+
 ## Contracts
 
 | Contract | What |

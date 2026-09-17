@@ -1,18 +1,50 @@
 {
   "name": "@arcdraw/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "TypeScript SDK for ArcDraw: request, fulfill and verify drand-backed randomness on Arc",
   "license": "MIT",
   "type": "module",
-  "main": "./src/index.ts",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "abis": "node scripts/export-abis.mjs",
+    "abis:check": "node scripts/export-abis.mjs --check",
+    "deployments": "node scripts/export-deployments.mjs",
+    "deployments:check": "node scripts/export-deployments.mjs --check"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "zod": "^4.6.5"
+  },
   "peerDependencies": {
     "viem": "^2.56.0"
   },
-  "scripts": {
-    "abis": "node scripts/export-abis.mjs",
-    "abis:check": "node scripts/export-abis.mjs --check"
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^24.13.5",
+    "typescript": "^5.9.3",
+    "viem": "^2.56.6",
+    "vitest": "^4.1.11"
   }
 }

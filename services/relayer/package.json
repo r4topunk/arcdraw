@@ -1,8 +1,39 @@
 {
   "name": "@arcdraw/relayer",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Permissionless ArcDraw relayer: watches requests, fetches drand beacons, fulfills onchain",
   "license": "MIT",
-  "type": "module"
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "arcdraw-relayer": "./dist/main.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "dry-run": "RELAYER_DRY_RUN=true node --env-file-if-exists=../../.env dist/main.js"
+  },
+  "dependencies": {
+    "@arcdraw/sdk": "workspace:*",
+    "viem": "^2.56.6",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^24.13.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
 }
