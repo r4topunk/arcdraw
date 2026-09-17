@@ -3,7 +3,7 @@ const steps = [
     n: "01",
     t: "t",
     title: "Request pins a future round",
-    body: "Your contract calls requestRandomness. The coordinator computes the drand round from block.timestamp and pins current + 2, which is published 3 to 6 seconds later. Nobody, including the requester, can know it yet.",
+    body: "Your contract calls requestRandomness. The coordinator computes the drand round from block.timestamp and pins current + 4, which is published 9 to 12 seconds later. Nobody, including the requester, can know it yet.",
     code: "requestRandomness(gas, bounty)",
   },
   {

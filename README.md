@@ -27,7 +27,7 @@ Relayers are permissionless and can earn an optional USDC bounty.
 | `PREVRANDAO = 0`, no VRF | Lotteries, jury selection and fair allocations have no native entropy on Arc. ArcDraw provides it |
 | EIP-2537 BLS12-381 precompiles (0x0b-0x11) | Verifying a quicknet signature onchain takes about 214k gas. The coordinator trusts no oracle key: it checks the beacon itself |
 | USDC is the gas token, 20 gwei floor | Costs are predictable in dollars: a fresh-round fulfill is about **0.006 USDC**. Bounties are paid in the same unit relayers spend on gas |
-| Sub-second deterministic finality | Latency is roughly one drand period (3s) plus one block, and consumers never see a reorg |
+| Sub-second deterministic finality | Latency is the 4-round safety delay (9-12s) plus one block, and consumers never see a reorg |
 | USDC ERC-20 at `0x3600…0000` (6 decimals) with EIP-2612 permit | The FairAllocation demo takes subscriptions with a single permit signature and refunds losers in full |
 
 ## Architecture
@@ -61,7 +61,7 @@ Relayers are permissionless and can earn an optional USDC bounty.
 
 | Step | What happens | Guarantee |
 |---|---|---|
-| `requestRandomness(callbackGasLimit, bounty)` | Pins round `currentRound(block.timestamp) + 2`, which is at least 3s in the future. It stays correct when several blocks share a timestamp. An optional USDC bounty is escrowed | The outcome is unknowable when the request lands |
+| `requestRandomness(callbackGasLimit, bounty)` | Pins round `currentRound(block.timestamp) + 4`, which is published more than 9s after the request block. It stays correct when several blocks share a timestamp. An optional USDC bounty is escrowed | The outcome is unknowable when the request lands |
 | `fulfill(id, sig)` / `fulfillBatch(round, sig, ids)` | Verifies the BLS signature once per round and stores `sha256(sig)`. Later requests on the same round skip the pairing (~76k gas). The fulfiller receives the bounty | A forged signature can't pass |
 | Derivation | `randomness = keccak256(abi.encode(sha256(sig), chainid, coordinator, requestId))` | One value per request, independent across requests |
 | Callback | `rawFulfillRandomness(id, randomness)` runs with exactly `callbackGasLimit` gas (max 500k) and its returndata is not copied | If the consumer reverts, fulfillment still goes through |
@@ -73,7 +73,7 @@ Relayers are permissionless and can earn an optional USDC bounty.
 |---|---|
 | [`contracts/`](contracts) | Foundry, Osaka EVM. [`ArcDrawCoordinator`](contracts/src/ArcDrawCoordinator.sol) (no owner, no upgrade, no pause), [`ArcDrawConsumer`](contracts/src/ArcDrawConsumer.sol) (abstract base), [`FairAllocation`](contracts/src/demo/FairAllocation.sol) (demo), CREATE2 [deploy script](contracts/script/Deploy.s.sol) |
 | [`packages/sdk`](packages/sdk/README.md) | `@arcdraw/sdk`: viem client (request, wait, fulfill, refund, windowed log scans), drand fetch plus offchain BLS verification (noble), round math and derivation that match the Solidity byte for byte, typed errors |
-| [`services/relayer`](services/relayer/README.md) | `@arcdraw/relayer`: log cursor, one batch per round, retries and backoff, gas-price ceiling, dry-run mode, JSON logs with correlation ids, `/healthz`, Dockerfile |
+| [`services/relayer`](services/relayer/README.md) | `@arcdraw/relayer`: log cursor, batched fulfillment with a simulation-independent worst-case gas limit, bisection and quarantine after onchain reverts, bounty-covers-cost gate, retries and backoff, gas-price ceiling, dry-run mode, JSON logs with correlation ids, `/healthz`, Dockerfile |
 | [`apps/web`](apps/web/README.md) | Next.js static site: landing page with a live beacon verified in the browser, docs, request app, per-request inspector, FairAllocation demo. Gets its ABIs, chain, drand helpers and round math from `@arcdraw/sdk` |
 | [`deployments/`](deployments/arc-mainnet.json) | Addresses, deploy blocks, proof txs, measured gas |
 | [`docs/`](docs) | PRD, spec, generated gas report |
@@ -143,13 +143,13 @@ Measured with isolated transactions and real quicknet signatures ([docs/GAS.md](
 
 | Call | Gas | USDC |
 |---|---:|---:|
-| `requestRandomness`, no bounty | 94,192 | 0.0019 |
-| `requestRandomness`, 0.01 USDC bounty | 119,715 | 0.0024 |
-| `fulfill`, fresh round (BLS verify), bounty paid | 313,410 | 0.0063 |
+| `requestRandomness`, no bounty | 94,208 | 0.0019 |
+| `requestRandomness`, 0.01 USDC bounty | 119,731 | 0.0024 |
+| `fulfill`, fresh round (BLS verify), bounty paid | 313,443 | 0.0063 |
 | `fulfill`, round already verified | 75,845 | 0.0015 |
-| `fulfill`, fresh round + FairAllocation callback | 345,721 | 0.0069 |
-| `fulfillBatch`, fresh round, 5 requests | 446,892 | 0.0089 |
-| `refund` | 49,659 | 0.0010 |
+| `fulfill`, fresh round + FairAllocation callback | 345,787 | 0.0069 |
+| `fulfillBatch`, fresh round, 5 requests | 446,903 | 0.0089 |
+| `refund`, bounty returned | 71,893 | 0.0014 |
 
 The BLS check alone costs 213,915 gas, and `verifyRound` used 235,588 execution gas on an Arc mainnet fork. Gas from real mainnet receipts: `[MAINNET_MEASURED_GAS]` (recorded in `deployments/arc-mainnet.json` after the proof run).
 
@@ -158,10 +158,10 @@ The BLS check alone costs 213,915 gas, and `verifyRound` used 235,588 execution 
 | Actor | Can | Cannot |
 |---|---|---|
 | drand League of Entropy (a threshold of members colluding) | Predict or bias rounds. **This is the core trust assumption** | n/a |
-| Requester | Choose a round at least 2 ahead, and the callback gas | Learn the outcome before the request is final, or reroll it through a refund |
+| Requester | Choose a round at least 4 ahead, and the callback gas | Learn the outcome before the request is final, or reroll it through a refund |
 | Relayer / fulfiller | Delay fulfillment (liveness only), race for the bounty | Forge randomness (BLS verified onchain), starve the callback (`gasleft` check), make the callback revert fulfillment |
-| Arc validators | Skew `block.timestamp` slightly | Change a verified beacon. Assumption: timestamp lag stays under 3s, otherwise the pinned round may already be public |
-| Consumer contract | Revert or burn gas in its callback | Block fulfillment or re-enter (transient lock, fixed gas) |
+| Arc validators | Skew `block.timestamp` slightly | Change a verified beacon. Assumption: timestamp lag stays under 9s, otherwise the pinned round may already be public |
+| Consumer contract | Revert or burn gas in its callback, or behave differently in simulation | Block fulfillment or re-enter (transient lock, fixed gas), or trap the reference relayer in a revert loop (worst-case gas limit, bisection, quarantine) |
 | Deployer | Nothing after deployment | Upgrade, pause, change the drand key, take fees |
 
 If no relayer shows up, anyone can fulfill later, including the requester from the web app, and the value stays the same. Always verify beacons offchain before sending: a malformed G1 point makes the precompile consume all forwarded gas (see [GAS.md](docs/GAS.md)). The full analysis is in [SPEC section 9](docs/SPEC.md#9-security-and-trust-model).

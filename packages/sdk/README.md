@@ -59,7 +59,7 @@ const r = await arcdraw.getRequest(42n);
 ### Request randomness
 
 ```ts
-// Default round: currentRound + 2 (published strictly more than 3 s after the request block).
+// Default round: currentRound + 4 (published strictly more than 9 s after the request block).
 await arcdraw.request();
 
 // Contract consumer with a callback and a bounty. The SDK approves USDC first if the allowance is short.
@@ -73,6 +73,16 @@ await arcdraw.request({ round: minRequestRound(now) + 20n });
 
 Consumer contracts inherit `ArcDrawConsumer` (see `contracts/src/ArcDrawConsumer.sol`) and implement
 `_fulfillRandomness(uint256 requestId, bytes32 randomness)`.
+
+### Size a fulfillment gas limit (relayers)
+
+```ts
+import { gasCostUsdc, worstCaseFulfillBatchGas } from "@arcdraw/sdk";
+// Every callback is assumed to burn its full budget: never size the limit from eth_estimateGas alone,
+// a consumer can be cheap in simulation and expensive onchain.
+const gas = worstCaseFulfillBatchGas({ freshRound: true, callbackGasLimits: [0, 100_000] });
+const costUsdc = gasCostUsdc(gas, await publicClient.getGasPrice()); // 6-decimal units, rounded up
+```
 
 ### Verify a drand beacon offchain
 

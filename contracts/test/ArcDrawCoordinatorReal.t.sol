@@ -19,8 +19,8 @@ contract ArcDrawCoordinatorRealTest is Test {
         vm.etch(ARC_USDC, address(new MockUSDC()).code);
         usdc = MockUSDC(ARC_USDC);
         coord = new ArcDrawCoordinator(ARC_USDC);
-        // One block before round 1000000 can be pinned: currentRound = 999998.
-        vm.warp(coord.roundTimestamp(Quicknet.ROUND_A - 2));
+        // First moment round 1000000 can be pinned: currentRound = 999996 (MIN_ROUND_DELAY = 4).
+        vm.warp(coord.roundTimestamp(Quicknet.ROUND_A - 4));
         assertEq(coord.minRequestRound(), Quicknet.ROUND_A);
     }
 

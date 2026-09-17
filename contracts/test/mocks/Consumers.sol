@@ -113,3 +113,14 @@ contract GasProbeConsumer is ArcDrawConsumer {
         gasAtEntry = gasleft();
     }
 }
+
+/// @notice Audit R1: cheap under eth_call / eth_estimateGas (tx.gasprice == 0), burns its whole callback budget in a
+///         real transaction. A relayer that sizes the gas limit from the estimate sends a batch that reverts onchain.
+contract SimDivergentConsumer is RecordingConsumer {
+    constructor(IArcDrawCoordinator c) RecordingConsumer(c) {}
+
+    function _fulfillRandomness(uint256, bytes32) internal view override {
+        if (tx.gasprice == 0) return;
+        while (true) {}
+    }
+}

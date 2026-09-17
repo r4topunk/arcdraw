@@ -24,7 +24,7 @@ export const USDC_DECIMALS = 6;
 
 /** Mirrors the coordinator constants (see docs/SPEC.md section 0). */
 export const COORDINATOR_LIMITS = {
-  minRoundDelay: 2n,
+  minRoundDelay: 4n,
   maxRoundDelay: 10_512_000n,
   maxCallbackGasLimit: 500_000,
   requestTimeout: 3600n,

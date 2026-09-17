@@ -16,7 +16,7 @@ Arc has no usable onchain randomness. `PREVRANDAO` is 0 and there is no VRF prov
 
 ArcDraw is a small randomness coordinator for Arc mainnet:
 
-- **Request.** A contract calls `requestRandomness`. The coordinator pins a future round of drand quicknet, the League of Entropy's public beacon, at least two rounds ahead, so nobody can know the outcome when the request lands.
+- **Request.** A contract calls `requestRandomness`. The coordinator pins a future round of drand quicknet, the League of Entropy's public beacon, at least four rounds (9 to 12 seconds) ahead, so nobody can know the outcome when the request lands.
 - **Fulfill.** Anyone can fulfill it. The coordinator verifies the BLS signature for that round **onchain**, using Arc's EIP-2537 BLS12-381 precompiles through randa-mu/bls-solidity (MIT). It then derives a per-request value and calls the consumer back with limited gas. A failing callback never blocks fulfillment, and a refund after the timeout can't reroll the result. No oracle key, owner or upgrades.
 - **Bounties.** Relayers can earn an optional **USDC** bounty. They also pay gas in USDC, so costs are priced in dollars: about 0.006 USDC per fresh round at Arc's 20 gwei floor.
 

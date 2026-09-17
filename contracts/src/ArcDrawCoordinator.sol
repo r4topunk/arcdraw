@@ -24,7 +24,7 @@ contract ArcDrawCoordinator is IArcDrawCoordinator {
     /// @inheritdoc IArcDrawCoordinator
     uint64 public constant PERIOD = 3;
     /// @inheritdoc IArcDrawCoordinator
-    uint64 public constant MIN_ROUND_DELAY = 2;
+    uint64 public constant MIN_ROUND_DELAY = 4;
     /// @inheritdoc IArcDrawCoordinator
     uint64 public constant MAX_ROUND_DELAY = 10_512_000;
     /// @inheritdoc IArcDrawCoordinator
@@ -237,10 +237,15 @@ contract ArcDrawCoordinator is IArcDrawCoordinator {
     }
 
     /// @dev Round 0 does not exist; it maps to GENESIS_TIME. Rounds stored in requests are bounded by
-    ///      MAX_ROUND_DELAY, so the uint64 arithmetic cannot overflow for them.
+    ///      MAX_ROUND_DELAY, so they never reach the cap. Arbitrary rounds passed to `roundTimestamp` or
+    ///      `verifyRound` saturate at type(uint64).max instead of wrapping to a past timestamp.
     function _roundTimestamp(uint64 round) internal pure returns (uint64) {
         if (round == 0) return GENESIS_TIME;
-        return uint64(uint256(GENESIS_TIME) + (uint256(round) - 1) * PERIOD);
+        uint256 ts = uint256(GENESIS_TIME) + (uint256(round) - 1) * PERIOD;
+        if (ts > type(uint64).max) return type(uint64).max;
+        // casting to uint64 is safe because ts <= type(uint64).max is checked above
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(ts);
     }
 
     /// @dev Marks a request fulfilled and returns its randomness and the bounty owed to the fulfiller.

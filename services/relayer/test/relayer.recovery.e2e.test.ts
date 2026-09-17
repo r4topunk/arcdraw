@@ -1,4 +1,4 @@
-import { type ArcDrawClient, type Beacon, createArcDraw, roundTime } from "@arcdraw/sdk";
+import { type ArcDrawClient, type Beacon, createArcDraw, roundAt, roundTime } from "@arcdraw/sdk";
 import {
   type Address,
   concat,
@@ -56,7 +56,12 @@ suite("relayer recovery paths (anvil, TestCoordinator)", () => {
     const hash = await wallet.deployContract({ abi, bytecode, args, account: requester, chain: null });
     return (await publicClient.waitForTransactionReceipt({ hash })).contractAddress as Address;
   };
-  const makeRelayer = (o: { store: MemoryStateStore; minBounty?: bigint; receiptTimeoutMs?: number }) =>
+  const makeRelayer = (o: {
+    store: MemoryStateStore;
+    minBounty?: bigint;
+    receiptTimeoutMs?: number;
+    sponsoredRequesters?: Address[];
+  }) =>
     new Relayer({
       client: createArcDraw({
         publicClient,
@@ -77,6 +82,7 @@ suite("relayer recovery paths (anvil, TestCoordinator)", () => {
       startBlock: 0n,
       minBounty: o.minBounty ?? 0n,
       receiptTimeoutMs: o.receiptTimeoutMs ?? 60_000,
+      sponsoredRequesters: o.sponsoredRequesters ?? [],
       retry: { attempts: 2, baseDelayMs: 1, maxDelayMs: 2 },
       now: () => Date.now() + clockOffsetMs,
     });
@@ -169,7 +175,9 @@ suite("relayer recovery paths (anvil, TestCoordinator)", () => {
       const t1 = await relayer.tick();
       expect(t1.sent).toHaveLength(1);
       expect(t1.skipped).toContainEqual({ round, reason: "receipt_timeout" });
-      const inflight = (await store.load())?.inflight.get(round);
+      const inflightOf = async () =>
+        [...((await store.load())?.inflight.values() ?? [])].find((x) => x.round === round);
+      const inflight = await inflightOf();
       expect(inflight?.txHash).toBe(t1.sent[0]);
       expect(inflight?.nonce).toBe(nonceBefore);
 
@@ -185,7 +193,7 @@ suite("relayer recovery paths (anvil, TestCoordinator)", () => {
       const t3 = await relayer.tick();
       expect(t3.sent).toHaveLength(1);
       expect(t3.sent[0]).not.toBe(t1.sent[0]);
-      const replaced = (await store.load())?.inflight.get(round);
+      const replaced = await inflightOf();
       expect(replaced?.nonce).toBe(nonceBefore);
       expect(replaced?.maxFeePerGas).toBeGreaterThan(inflight?.maxFeePerGas ?? 0n);
       expect(logs.some((l) => l.msg === "tx_replaced" && l.replacedTxHash === t1.sent[0])).toBe(true);
@@ -201,6 +209,53 @@ suite("relayer recovery paths (anvil, TestCoordinator)", () => {
     const t4 = await relayer.tick();
     expect(t4.sent).toHaveLength(0);
     expect((await store.load())?.inflight.size).toBe(0);
+    expect(await publicClient.getTransactionCount({ address: relayerAddr })).toBe(nonceBefore + 1);
+  });
+
+  it("R1: fulfills a batch holding consumers that are cheap only in simulation, in one tx, without a revert loop", async () => {
+    // Two callbacks that return early when tx.gasprice == 0 and burn 500k gas otherwise, plus an honest request.
+    const evil = await deploy("Consumers.sol", "SimDivergentConsumer", [coordinator]);
+    const evilAbi = artifact("Consumers.sol", "SimDivergentConsumer").abi;
+    const head = await publicClient.getBlock({ blockTag: "latest" });
+    const start = roundTime(roundAt(head.timestamp) + 2n); // two blocks inside one drand period pin the same round
+    for (const dt of [0n, 1n]) {
+      await rpc("evm_setNextBlockTimestamp", [Number(start + dt)]);
+      const hash = await wallet.writeContract({
+        address: evil,
+        abi: evilAbi,
+        functionName: "request",
+        args: [500_000, 0n],
+        account: requester,
+        chain: null,
+      });
+      await publicClient.waitForTransactionReceipt({ hash });
+    }
+    const count = (await publicClient.readContract({
+      address: coordinator,
+      abi: artifact("TestCoordinator.sol", "TestCoordinator").abi,
+      functionName: "requestCount",
+    })) as bigint;
+    const evilIds = [count - 1n, count];
+    const round = (await sdk.getRequest(count)).round;
+    expect((await sdk.getRequest(count - 1n)).round).toBe(round);
+    const honest = await sdk.request({ round, bounty: 10_000n });
+    await mineAt(roundTime(round) + 1n);
+
+    const store = new MemoryStateStore();
+    const relayer = makeRelayer({ store, minBounty: 1n, sponsoredRequesters: [evil] });
+    const nonceBefore = await publicClient.getTransactionCount({ address: relayerAddr });
+    const t = await relayer.tick();
+    expect(t.sent).toHaveLength(1);
+    expect(t.reverted).toHaveLength(0);
+    expect([...t.fulfilled].sort()).toEqual([...evilIds, honest.requestId].sort());
+    const tx = await publicClient.getTransaction({ hash: t.sent[0] as `0x${string}` });
+    expect(tx.gas).toBeGreaterThanOrEqual(1_000_000n + 2n * (500_000n / 63n));
+    expect(logs.some((l) => l.msg === "simulation_fee_fields_rejected")).toBe(false);
+    const fulfilled = logs.find((l) => l.msg === "fulfilled" && l.tickId === t.tickId);
+    expect(fulfilled?.callbacksFailed).toEqual(evilIds.map(String));
+
+    const again = await relayer.tick();
+    expect(again.sent).toHaveLength(0);
     expect(await publicClient.getTransactionCount({ address: relayerAddr })).toBe(nonceBefore + 1);
   });
 });

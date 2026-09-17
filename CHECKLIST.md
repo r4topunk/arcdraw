@@ -9,7 +9,7 @@ DoD for the whole list: a live URL, a public repo and proof txs on explorer.arc.
 | 2 | Create the Foundry keystore `arcdraw-deployer` and back it up offline | Password | `cast wallet list` shows it | DEPLOY §2 |
 | 3 | Acquire about 5 USDC on Arc mainnet (bridge or exchange). Fund the deployer (1.5), relayer (1.0) and 5 demo accounts (0.3 each) | USDC, wallet | Balances visible with `cast balance` | DEPLOY §1 |
 | 4 | Create a dedicated relayer hot wallet. Put its key only into `.env` (chmod 600) | Wallet app | Key is in `.env` (chmod 600) and the relayer wallet is funded (`cast balance`) | DEPLOY §7 |
-| 5 | Simulate the deploy, then deploy with `--broadcast` **[SPENDS]** | Keystore password | Two addresses printed. Expected: `0x7E91…C563` and `0x16A0…2067` | DEPLOY §3 |
+| 5 | Simulate the deploy, then deploy with `--broadcast` **[SPENDS]** | Keystore password | Two addresses printed. Expected: `0x3cfD…0324` and `0x536a…3f89` | DEPLOY §3 |
 | 6 | Verify both contracts on explorer.arc.io | n/a | A "Contract" tab shows the source | DEPLOY §4 |
 | 7 | `write-deployment.mjs`, then `pnpm --filter @arcdraw/sdk deployments`, `verified: true`, `pnpm run verify`, then `pnpm relayer:dry-run` | n/a | JSON has the addresses and deploy blocks, the build is green and the dry-run relayer ticks | DEPLOY §5, §7 |
 | 8 | Create the public GitHub repo, then commit and push. Check that `git ls-files` includes no `.env` | GitHub account | Repo URL opens | n/a |

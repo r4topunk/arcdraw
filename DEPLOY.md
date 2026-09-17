@@ -34,7 +34,7 @@ On Arc, USDC is the gas token. A wallet's USDC balance pays for gas and also cov
 
 | Wallet | Purpose | Suggested balance |
 |---|---|---|
-| `arcdraw-deployer` (Foundry keystore) | Deploy 2 contracts (~6.95M gas simulated, 0.14 USDC at 20 gwei, ~0.3 USDC at 41 gwei), proof requests, create the FairAllocation sale | 1.5 USDC |
+| `arcdraw-deployer` (Foundry keystore) | Deploy 2 contracts (~7.73M gas simulated, 0.155 USDC at 20 gwei, ~0.32 USDC at 41 gwei), proof requests, create the FairAllocation sale | 1.5 USDC |
 | `relayer` hot wallet (dedicated, never reused) | `fulfill` / `fulfillBatch` gas (~0.006 USDC per fresh round) | 1.0 USDC |
 | Browser wallet(s) for the demo | Web app requests plus 5 FairAllocation subscribers (0.1 USDC price + gas each) | 5 × 0.3 = 1.5 USDC |
 | Buffer | Gas spikes, retries | 1.0 USDC |
@@ -73,15 +73,15 @@ Expected output of the 3a simulation, computed from the committed bytecode in a 
 
 | Contract | Expected address |
 |---|---|
-| ArcDrawCoordinator | `0x7E911161D337c895279e1088f3548F109A4EC563` |
-| FairAllocation | `0x16A00a70756A1BdFF7E6ea05A2324A283d812067` |
+| ArcDrawCoordinator | `0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324` |
+| FairAllocation | `0x536aA4934edc6a6d1502F504185B567ef6c53f89` |
 
 If 3a prints different addresses, the bytecode changed (a source edit or a different solc). That is fine, but use the printed addresses from here on.
 
 Post-deploy sanity checks (read-only):
 
 ```bash
-export RPC=https://rpc.mainnet.arc.io COORD=0x7E911161D337c895279e1088f3548F109A4EC563 FA=0x16A00a70756A1BdFF7E6ea05A2324A283d812067
+export RPC=https://rpc.mainnet.arc.io COORD=0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324 FA=0x536aA4934edc6a6d1502F504185B567ef6c53f89
 cast call $COORD "USDC()(address)" --rpc-url $RPC                 # 0x3600000000000000000000000000000000000000
 cast call $COORD "currentRound()(uint64)" --rpc-url $RPC          # matches https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/latest (±1)
 cast call $FA "coordinator()(address)" --rpc-url $RPC             # == $COORD
@@ -154,6 +154,8 @@ cp .env.example .env && chmod 600 .env
 # edit .env:
 #   COORDINATOR_ADDRESS=<coordinator>          COORDINATOR_DEPLOY_BLOCK=<deployBlock from deployments/arc-mainnet.json>
 #   RELAYER_PRIVATE_KEY=<relayer hot wallet key>   RELAYER_HEALTH_PORT=8787   RELAYER_MIN_BOUNTY=0
+#   RELAYER_SPONSORED_REQUESTERS=<fairAllocation>,<deployer address>   # relayed for free (the proof steps use bounty 0)
+#   RELAYER_COST_MARGIN_PCT=120   # everyone else: bounties must cover 120% of the worst-case gas cost
 pnpm build
 pnpm relayer:dry-run            # first: simulate only, confirm "relayer_started" and ticking logs, then Ctrl-C
 pnpm relayer                    # live
@@ -169,7 +171,11 @@ For long-running hosting (Mac mini or a VPS), pick one:
   The Docker build was not exercised in CI, so run it once locally first.
 - **Plain Node under a supervisor** (launchd, systemd, pm2) running `pnpm relayer` with restart-on-exit. The process exits 1 after 5 failed ticks in a row, and exits 2 on bad config.
 
-The logs are JSON lines. Use `txHash`, `requestIds` and `latency_ms` to fill step 8.
+Who the relayer pays gas for:
+- **Sponsored requesters** (`RELAYER_SPONSORED_REQUESTERS`) are fulfilled whatever their bounty. List only contracts and accounts you control.
+- **Everyone else** is fulfilled when the bounties of a batch cover `RELAYER_COST_MARGIN_PCT`% of its worst-case gas cost (about 0.01 USDC for a lone request without callback at 20 gwei). Zero-bounty requests from web app visitors are therefore left to "Fulfill it yourself". `RELAYER_COST_MARGIN_PCT=0` sponsors every request: the gas limit, bisection and quarantine still bound what a hostile consumer can burn, but anyone can then make you pay for up to `RELAYER_MAX_CALLBACK_GAS` of callback gas per request.
+
+The logs are JSON lines. Use `txHash`, `requestIds` and `latency_ms` to fill step 8. `tx_reverted` (with `action: "bisect"` or `"quarantine"`) and `quarantine_dropped` mean a batch reverted onchain; investigate the listed request ids.
 There is no separate keeper or indexer: the relayer is the keeper, and its log cursor (`RELAYER_STATE_FILE`) is the indexer.
 
 ## 8. On-chain proof scenario [SPENDS]
@@ -192,7 +198,7 @@ The relayer must be running.
 ```bash
 TX=$(cast send $COORD "requestRandomness(uint32,uint96)" 0 0 --rpc-url $RPC --account $ACCT --json | jq -r .transactionHash)   # -> requestTx
 ID=$(request_id $TX); echo $TX $ID
-sleep 15
+sleep 20   # the pinned round is 4 rounds (9-12 s) ahead, plus one block and the relayer poll
 cast call $COORD "getRequest(uint256)((address,uint64,uint32,uint8,uint96,uint64,bytes32))" $ID --rpc-url $RPC
 # status (4th field) == 3 (Fulfilled). The fulfill tx hash is in the relayer log (msg "fulfilled", txHash) or on /r/?id=$ID
 ```
@@ -200,10 +206,10 @@ cast call $COORD "getRequest(uint256)((address,uint64,uint32,uint8,uint96,uint64
 ### 8b. Two requests on one round, one `fulfillBatch` (`fulfillBatchTx`)
 
 ```bash
-R=$(( $(cast call $COORD "minRequestRound()(uint64)" --rpc-url $RPC | cut -d" " -f1) + 20 ))   # ~60s ahead
+R=$(( $(cast call $COORD "minRequestRound()(uint64)" --rpc-url $RPC | cut -d" " -f1) + 20 ))   # ~70s ahead
 cast send $COORD "requestRandomnessAtRound(uint64,uint32,uint96)" $R 0 0 --rpc-url $RPC --account $ACCT
 cast send $COORD "requestRandomnessAtRound(uint64,uint32,uint96)" $R 0 0 --rpc-url $RPC --account $ACCT
-# after ~70s the relayer sends ONE fulfillBatch for round $R with both ids (see the log line with requestIds [a,b])
+# after ~80s the relayer sends ONE fulfillBatch for round $R with both ids (see the log line with requestIds [a,b])
 ```
 
 ### 8c. Bounty request, refund after the timeout, then a late fulfill (`refundTx`, `lateFulfillTx`)
@@ -215,7 +221,7 @@ TX=$(cast send $COORD "requestRandomness(uint32,uint96)" 0 10000 --rpc-url $RPC 
 ID=$(request_id $TX); echo $TX $ID
 cast call $COORD "expiresAt(uint256)(uint64)" $ID --rpc-url $RPC       # unix time; wait until it has passed (~1h)
 cast send $COORD "refund(uint256)" $ID --rpc-url $RPC --account $ACCT                           # -> refundTx
-# restart the relayer (RELAYER_MIN_BOUNTY=0): it fulfills the refunded request   -> lateFulfillTx
+# restart the relayer (deployer in RELAYER_SPONSORED_REQUESTERS): it fulfills the refunded request   -> lateFulfillTx
 # or click "Fulfill it yourself" on /r/?id=$ID
 ```
 

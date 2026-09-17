@@ -15,7 +15,7 @@
 | Message for round r | `sha256(uint64_be(r))`, hashed to G1 |
 | Public key (G2, 96 bytes compressed) | `83cf0f28...5ece45a` (see `packages/sdk/src/index.ts`) |
 | GENESIS_TIME / PERIOD | 1692803367 / 3 s |
-| MIN_ROUND_DELAY | 2 |
+| MIN_ROUND_DELAY | 4 (was 2 before the pre-mainnet audit, finding L1) |
 | MAX_ROUND_DELAY | 10,512,000 rounds (~1 year; caps `requestRandomnessAtRound`) |
 | MAX_CALLBACK_GAS_LIMIT | 500,000 |
 | REQUEST_TIMEOUT | 3600 s after the pinned round timestamp |
@@ -68,10 +68,14 @@ minRequestRound  = currentRound(block.timestamp) + MIN_ROUND_DELAY
 ```
 
 Proof of the safety margin. Let `c = currentRound(t)`. Then `GENESIS + (c-1)*3 <= t < GENESIS + c*3`, so
-`roundTimestamp(c+2) = GENESIS + (c+1)*3 > t + 3` and `<= t + 6`.
-The pinned round is published **strictly more than one period after** `block.timestamp`.
+`roundTimestamp(c+4) = GENESIS + (c+3)*3 > t + 9` and `<= t + 12`.
+The pinned round is published **strictly more than three periods after** `block.timestamp`.
 The formula depends only on `block.timestamp`, so several blocks sharing one timestamp get the same `minRequestRound`. This is harmless: the margin holds for each of them.
-It stays unsafe only if Arc's `block.timestamp` lags wall clock by >= 3s. That is a documented assumption, and Stage 3 measures it.
+It stays unsafe only if Arc's `block.timestamp` lags wall clock by >= 9s. That is a documented assumption, and Stage 3 measures it.
+Audit finding L1: with the original `+2` delay the margin was only 3 to 6 s, so a lag of about 2 s plus mempool exposure left little room; the delay was raised to 4 rounds, which adds 6 s of latency.
+
+`roundTimestamp(r)` saturates at `type(uint64).max` for rounds past the uint64 time range (audit finding I1), so a huge
+round passed to `roundTimestamp` or `verifyRound` can never wrap to a timestamp in the past.
 
 ## 3. ArcDrawCoordinator
 
@@ -213,6 +217,8 @@ contract FairAllocation is ArcDrawConsumer {
     function withdrawCreatorBounty(uint256 saleId) external;                      // pull creatorOwed (unused escrow) to creator
     function syncSeed(uint256 saleId) external;                                   // Drawing + request Fulfilled: copy stored randomness
     function cancelStuckDraw(uint256 saleId) external;                            // Drawing, unfulfilled DRAW_TIMEOUT after the round: Cancelled
+    function setTreasury(uint256 saleId, address newTreasury) external;          // creator only, any phase (audit L2)
+    function setCreatorPayee(uint256 saleId, address payee) external;            // creator only: bounty payouts go to payee (audit L2)
     function isWinner(uint256 saleId, address account) external view returns (bool);
     function participants(uint256 saleId) external view returns (address[] memory);
     // Stage 2 additions: getSale, participantCount, hasRefunded, saleOfRequest, bountyReclaimed,
@@ -251,7 +257,8 @@ The partial Fisher-Yates shuffle yields a uniform K-subset. Modulo bias is below
 Stage 2 details: with N <= K no draw happens, every subscriber wins and the bounty escrow is credited to the creator in `finalize`. The callback uses 34,038 gas with cold storage (budget 60,000). If ArcDraw refunds the draw bounty (expiry), anyone calls `reclaimBounty` to forward it to the creator, before or after a late fulfillment (it reads `refundedBounty`). A blocklisted loser cannot claim, but cannot block anyone else either.
 
 Round 1 hardening (fund-safety):
-- `finalize` never transfers. It records the outcome and credits `treasuryOwed` / `creatorOwed`; `withdrawTreasury` and `withdrawCreatorBounty` are permissionless pulls to the fixed recipients. A blocklisted treasury or creator therefore cannot block finalization or any loser refund.
+- `finalize` never transfers. It records the outcome and credits `treasuryOwed` / `creatorOwed`; `withdrawTreasury` and `withdrawCreatorBounty` are permissionless pulls to the sale's recipients. A blocklisted treasury or creator therefore cannot block finalization or any loser refund.
+- Audit finding L2: a treasury or creator blocklisted for good would still lock its own credit. The creator (a blocklisted address can still send transactions) redirects it with `setTreasury` or `setCreatorPayee` (used by `withdrawCreatorBounty` and `reclaimBounty`). Only the creator can call them, and subscriber refunds never depend on either address.
 - `syncSeed` recovers a sale stuck in `Drawing` when the coordinator marked the request Fulfilled but the callback failed: it copies the stored randomness, so the outcome is identical and cannot be ground.
 - `cancelStuckDraw` is the liveness escape hatch: if the request is still not Fulfilled `DRAW_TIMEOUT` (7 days) after its round timestamp, the sale becomes `Cancelled` and every subscriber pulls a full refund. Anyone can fulfill with drand's public signature during those 7 days, so a single party cannot force a cancellation.
 
@@ -289,6 +296,11 @@ Stage 3 implementation notes (`packages/sdk`): `createArcDraw` also exposes `get
 `undefined`), `getRoundRandomness(round)`, `getBeacon(round)`, `simulateFulfillBatch(round, ids, { account })`
 (eth_call + estimateGas only, used by the relayer dry-run) and `scanLogs(...)` (per-window `{ requested, fulfilled }`,
 which `scanRequests` wraps). `fulfill`/`fulfillBatch` send an empty signature when the round is already verified.
+`simulateFulfillBatch` takes optional `fees` so the simulation does not run with `tx.gasprice == 0`.
+`worstCaseFulfillBatchGas({ freshRound, callbackGasLimits })`, `callbackGasReserve` and `gasCostUsdc` (in `gas.ts`) give
+a simulation-independent gas bound for `fulfillBatch`: 80k base + 250k when the round is not verified + per id 40k +
+`callbackGasLimit + callbackGasLimit/63 + 10k` when it has a callback. The constants are checked against real BLS
+executions in `contracts/test/FulfillBatchGasLimit.t.sol`.
 Chains are exported as `arcMainnet`/`arcTestnet` (viem's `arc` ships without RPC URLs). `deployments` is generated from
 `deployments/*.json` and omits chains with no coordinator address. Errors: `ArcDrawError` subclasses with a `code`.
 
@@ -317,11 +329,20 @@ loop every RELAYER_POLL_MS:
 - **Signer**: `RELAYER_PRIVATE_KEY` from env (placeholder in `.env.example`) via `privateKeyToAccount`. The relayer never logs the key.
 - **Failure handling**: a revert with `RequestNotFulfillable` means a race was lost, logged at info. A drand fetch failure gets exponential backoff up to 30s. The RPC error budget is 5 consecutive failures, then exit(1) so the supervisor restarts it.
 - **Health**: `GET /healthz` returns `{lastTickAt, pending, lastScannedBlock}` (optional port).
-- **Stage 3 implementation notes** (`services/relayer`): the state file also records `inflight` tx hashes per round, so a
-  restart checks the receipt before resubmitting. Dry-run (`RELAYER_DRY_RUN=true`) needs no key and stops after
+- **Stage 3 implementation notes** (`services/relayer`): the state file also records `inflight` transactions (one record
+  per tx hash with its round, ids, nonce and fees; audit finding L3 replaced the per-round record), so a restart checks
+  the receipt before resubmitting and a stuck tx is replaced with its own nonce and ids. Dry-run (`RELAYER_DRY_RUN=true`) needs no key and stops after
   simulation. `RELAYER_MIN_BOUNTY` is a decimal USDC amount. "Due" is judged by the head block timestamp, not wall
   clock. Tick ids are 8 hex chars (`randomUUID`), not ULIDs. Full env table: `services/relayer/README.md`.
 - **Metrics in logs**: `fulfilled_total`, `batch_size`, `latency_ms`, `gas_used`.
+- **Pre-mainnet audit hardening**:
+  - R1 (gas griefing loop): the gas limit is `max(estimate + buffer, worstCaseFulfillBatchGas)`, simulation carries the
+    real fee fields, and a batch that reverts onchain is bisected (halves after 5 s); an id that reverts alone is
+    quarantined with exponential backoff (30 s doubling, capped at 1 h) and dropped after 6 strikes. State:
+    `quarantine: { id: { strikes, notBefore, maxGroup } }`.
+  - R2 (unpriced work): a batch is sent only if its bounties cover `RELAYER_COST_MARGIN_PCT` (default 120) percent of its
+    worst-case gas cost at the current gas price, and each paying id covers its own share. `RELAYER_SPONSORED_REQUESTERS`
+    are relayed for free and `RELAYER_MAX_CALLBACK_GAS` caps the callback budget the relayer pays for.
 
 ## 8. Web (`apps/web`)
 
@@ -342,8 +363,8 @@ Next.js (App Router) + Tailwind + wagmi/viem with an injected wallet. The site c
 | drand LoE (>= threshold colluding) | Predict or bias rounds | - (the core trust assumption, documented) |
 | Requester | Choose round >= min, choose callback gas | See the outcome before the request is final, or reroll via refund |
 | Fulfiller / relayer | Delay (liveness), race for the bounty | Forge randomness (BLS verify), starve the callback gas (gasleft check), make the callback revert the fulfillment |
-| Arc validators | Skew `block.timestamp` slightly | Change a verified beacon. If lag >= 3s the pinned round may already be public (assumption) |
-| Consumer contract | Revert or loop in the callback | Block the fulfillment or re-enter (nonReentrant, fixed gas) |
+| Arc validators | Skew `block.timestamp` slightly | Change a verified beacon. If lag >= 9s the pinned round may already be public (assumption) |
+| Consumer contract | Revert or loop in the callback, behave differently in simulation | Block the fulfillment or re-enter (nonReentrant, fixed gas), or drain the reference relayer in a revert loop (worst-case gas limit, bisection, quarantine) |
 | Coordinator deployer | Nothing after deploy | Upgrade, pause, change key |
 
 Checklist: CEI plus a transient reentrancy lock, no returndata copy on callback, only the ERC-20 6-decimal USDC interface, return-value checks on transfers, no native value handling (`payable` nowhere), no `selfdestruct`/`delegatecall`. Blocklisted requester or fulfiller: the bounty transfer reverts, so that party must use bounty 0. The vendored BLS library is unaudited, hence the **experimental** label.
@@ -354,15 +375,15 @@ Full table and method in `docs/GAS.md` (regenerate with `node contracts/script/g
 
 | Call | Gas | USDC |
 |---|---:|---:|
-| `requestRandomness` no bounty | 94,192 | 0.0019 |
-| `requestRandomness` with bounty | 119,715 | 0.0024 |
-| `fulfill` fresh round, bounty, no callback | 313,410 | 0.0063 |
-| `fulfill` fresh round, bounty, FairAllocation callback | 345,721 | 0.0069 |
+| `requestRandomness` no bounty | 94,208 | 0.0019 |
+| `requestRandomness` with bounty | 119,731 | 0.0024 |
+| `fulfill` fresh round, bounty, no callback | 313,443 | 0.0063 |
+| `fulfill` fresh round, bounty, FairAllocation callback | 345,787 | 0.0069 |
 | `fulfill` verified round | 75,845 | 0.0015 |
-| `fulfillBatch` fresh round, 5 ids | 446,892 | 0.0089 |
-| `refund` | 49,659 | 0.0010 |
+| `fulfillBatch` fresh round, 5 ids | 446,903 | 0.0089 |
+| `refund`, bounty returned | 71,893 | 0.0014 |
 | FairAllocation `finalize` N=1000, K=100 | 314,708 | 0.0063 |
-| Deploy both contracts (CREATE2) | ~6.95M | ~0.139 |
+| Deploy both contracts (CREATE2) | ~7.73M | ~0.155 |
 
 Fresh-round `fulfill` is 313k, above the PRD's "<= 300k (+ callback)" target by ~4%: BLS verify (~214k) + canonical check + `RoundVerified` event carrying the 48-byte signature + cold request slots + USDC transfer. Accepting uncompressed signatures (v2) would save ~80k.
 
@@ -370,7 +391,7 @@ Fresh-round `fulfill` is 313k, above the PRD's "<= 300k (+ callback)" target by 
 
 **Foundry (unit, local Osaka EVM; EIP-2537 is in revm)**
 - Spike (done): real quicknet vectors verify, wrong round fails, flipped flag fails.
-- Round math: fuzz `currentRound`/`roundTimestamp` against the reference formula, `minRequestRound` margin `> t+3 && <= t+6`, equal timestamps (`vm.warp` unchanged across requests).
+- Round math: fuzz `currentRound`/`roundTimestamp` against the reference formula, `minRequestRound` margin `> t+9 && <= t+12`, `roundTimestamp` saturation, equal timestamps (`vm.warp` unchanged across requests).
 - Request: too-soon round reverts, gas limit cap, bounty transferFrom (mock USDC 6 dec, `vm.etch` at 0x3600... in tests), ids increment, event fields.
 - Verify: valid, wrong round, wrong length, flipped compression/sign bits, non-canonical x (x+p), infinity flag, before round timestamp, idempotent reuse without signature.
 - Fulfill: bounty to fulfiller, derived randomness equals the formula, callback success/revert/out-of-gas/returndata bomb, insufficient gas reverts, reentrancy blocked, EOA requester no call.

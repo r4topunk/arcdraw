@@ -15,6 +15,7 @@ export {
   type RequestedEvent,
   type RequestOptions,
   type RequestStatus,
+  type SimulationFees,
   type TxOverrides,
   toArcDrawError,
 } from "./client.js";
@@ -50,6 +51,7 @@ export {
   TimeoutError,
   UnsupportedChainError,
 } from "./errors.js";
+export { callbackGasReserve, FULFILL_GAS, gasCostUsdc, worstCaseFulfillBatchGas } from "./gas.js";
 export { arcDrawConsumerAbi, arcDrawCoordinatorAbi, fairAllocationAbi } from "./generated/abis.js";
 export { type ArcDrawDeployment, deployments } from "./generated/deployments.js";
 export { expiryTime, minRequestRound, roundAt, roundTime } from "./rounds.js";

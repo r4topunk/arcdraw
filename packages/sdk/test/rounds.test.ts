@@ -25,20 +25,20 @@ describe("round math (mirrors ArcDrawCoordinator)", () => {
     }
   });
 
-  it("minRequestRound is published strictly after t+3 and at most t+6 (SPEC section 2)", () => {
+  it("minRequestRound is published strictly after t+9 and at most t+12 (SPEC section 2)", () => {
     let seed = 0x9e3779b97f4a7c15n;
     for (let i = 0; i < 5000; i++) {
       seed = (seed * 6364136223846793005n + 1442695040888963407n) % 2n ** 64n;
       const t = G + (seed % 2_000_000_000n);
       const min = minRequestRound(t);
-      expect(roundTime(min) > t + 3n).toBe(true);
-      expect(roundTime(min) <= t + 6n).toBe(true);
+      expect(roundTime(min) > t + 9n).toBe(true);
+      expect(roundTime(min) <= t + 12n).toBe(true);
     }
   });
 
   it("equal timestamps give equal pinned rounds", () => {
     const t = 1_758_000_000n;
     expect(minRequestRound(t)).toBe(minRequestRound(t));
-    expect(minRequestRound(t)).toBe(roundAt(t) + 2n);
+    expect(minRequestRound(t)).toBe(roundAt(t) + 4n);
   });
 });

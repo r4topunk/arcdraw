@@ -14,7 +14,7 @@ No. The coordinator and the vendored [randa-mu/bls-solidity](https://github.com/
 
 ## How fast is it?
 
-`requestRandomness` pins `current round + 2`, published 3 to 6 seconds after the request block. A relayer then needs one Arc block (about 0.5 s) plus its polling delay. Expect a result within roughly 6 to 12 seconds.
+`requestRandomness` pins `current round + 4`, published 9 to 12 seconds after the request block. A relayer then needs one Arc block (about 0.5 s) plus its polling delay. Expect a result within roughly 10 to 15 seconds.
 
 ## What does it cost?
 
@@ -22,7 +22,7 @@ At Arc's 20 gwei floor, paid in USDC: about 0.0019 USDC to request, 0.0063 USDC 
 
 ## Why would anyone fulfill my request?
 
-Attach a USDC bounty and any relayer can claim it. Without a bounty you depend on voluntary relayers, or you press "Fulfill it yourself" in the [app](/app/). The beacon is public, so no special permission is needed.
+Attach a USDC bounty and any relayer can claim it. The reference relayer only sends a batch when its bounties cover the worst-case gas cost with a margin (about 0.01 USDC for a request without callback at the 20 gwei floor; more with a callback). Without a bounty you depend on voluntary relayers, or you press "Fulfill it yourself" in the [app](/app/). The beacon is public, so no special permission is needed.
 
 ## Can a requester cancel a draw they do not like?
 
@@ -34,7 +34,7 @@ No. A BLS signature for a given round and key is unique, and the coordinator rej
 
 ## What if Arc's `block.timestamp` lags real time?
 
-The `+2` round margin means the pinned round is published strictly more than 3 seconds after `block.timestamp`. If Arc's timestamp lagged wall clock by 3 seconds or more, the round could already be public at request time. This is a documented assumption. Use `requestRandomnessAtRound` with a larger margin for high-value draws.
+The `+4` round margin means the pinned round is published strictly more than 9 seconds after `block.timestamp`. If Arc's timestamp lagged wall clock by 9 seconds or more, the round could already be public at request time. This is a documented assumption. Use `requestRandomnessAtRound` with a larger margin for high-value draws.
 
 ## What if drand stops?
 

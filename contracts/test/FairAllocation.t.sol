@@ -451,6 +451,85 @@ contract FairAllocationTest is BaseTest {
         fa.withdrawCreatorBounty(saleId);
     }
 
+    /// @notice L2: a treasury blocklisted for good does not lock the proceeds; the creator redirects them.
+    function test_blocklistedTreasury_creatorRedirectsProceeds() public {
+        uint256 saleId = _create(1, 0);
+        _subscribeMany(saleId, 3);
+        _drawAndFulfill(saleId);
+        fa.finalize(saleId);
+        usdc.blacklist(treasury, true);
+        vm.expectRevert("Blacklistable: account is blacklisted");
+        fa.withdrawTreasury(saleId);
+
+        address newTreasury = makeAddr("newTreasury");
+        vm.expectEmit(address(fa));
+        emit FairAllocation.TreasuryUpdated(saleId, newTreasury);
+        vm.prank(creator);
+        fa.setTreasury(saleId, newTreasury);
+        assertEq(fa.getSale(saleId).treasury, newTreasury);
+        fa.withdrawTreasury(saleId);
+        assertEq(usdc.balanceOf(newTreasury), PRICE);
+        assertEq(fa.treasuryOwed(saleId), 0);
+    }
+
+    /// @notice L2: a blocklisted creator (who can still send transactions) redirects its bounty payouts.
+    function test_blocklistedCreator_payeeReceivesUnusedBounty() public {
+        uint256 saleId = _create(5, BOUNTY);
+        _subscribeMany(saleId, 2);
+        vm.warp(block.timestamp + 1 hours);
+        fa.finalize(saleId);
+        usdc.blacklist(creator, true);
+        vm.expectRevert("Blacklistable: account is blacklisted");
+        fa.withdrawCreatorBounty(saleId);
+
+        address payee = makeAddr("payee");
+        vm.prank(creator);
+        fa.setCreatorPayee(saleId, payee);
+        assertEq(fa.creatorPayee(saleId), payee);
+        fa.withdrawCreatorBounty(saleId);
+        assertEq(usdc.balanceOf(payee), BOUNTY);
+        fa.withdrawTreasury(saleId);
+        assertEq(usdc.balanceOf(address(fa)), 0);
+    }
+
+    function test_blocklistedCreator_payeeReceivesRefundedBounty() public {
+        uint256 saleId = _create(1, BOUNTY);
+        _subscribeMany(saleId, 2);
+        vm.warp(block.timestamp + 1 hours);
+        uint256 requestId = fa.draw(saleId);
+        vm.warp(coord.expiresAt(requestId));
+        coord.refund(requestId);
+        usdc.blacklist(creator, true);
+        vm.expectRevert("Blacklistable: account is blacklisted");
+        fa.reclaimBounty(saleId);
+
+        address payee = makeAddr("payee");
+        vm.prank(creator);
+        fa.setCreatorPayee(saleId, payee);
+        fa.reclaimBounty(saleId);
+        assertEq(usdc.balanceOf(payee), BOUNTY);
+    }
+
+    function test_setPayees_onlyCreator_nonZero() public {
+        uint256 saleId = _create(1, 0);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.NotCreator.selector, saleId, bob));
+        vm.prank(bob);
+        fa.setTreasury(saleId, bob);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.NotCreator.selector, saleId, bob));
+        vm.prank(bob);
+        fa.setCreatorPayee(saleId, bob);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.InvalidSaleParams.selector));
+        vm.prank(creator);
+        fa.setTreasury(saleId, address(0));
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.InvalidSaleParams.selector));
+        vm.prank(creator);
+        fa.setCreatorPayee(saleId, address(0));
+        // unknown sale: nobody is its creator
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.NotCreator.selector, 99, address(0)));
+        vm.prank(address(0));
+        fa.setTreasury(99, bob);
+    }
+
     // ---------------------------------------------------------------- stuck draw recovery
 
     function test_syncSeed_afterFailedCallback() public {

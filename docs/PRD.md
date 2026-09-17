@@ -22,7 +22,7 @@ There is no oracle operator to trust and no admin keys. The only trust assumptio
 | PREVRANDAO = 0, no VRF | Nobody else fills this primitive gap yet |
 | EIP-2537 precompiles (0x0b-0x11) | drand quicknet signatures can be checked fully onchain (proved on mainnet, ~214k gas verify) |
 | USDC as gas, 20 gwei floor | Predictable cost: about 0.0056 USDC to verify a fresh round. Bounties are paid in the same unit as gas |
-| Sub-second deterministic finality | End-to-end latency is about the drand period (3s) plus 1 block. Consumers never see a reorg |
+| Sub-second deterministic finality | End-to-end latency is the 4-round safety delay (9-12s) plus 1 block. Consumers never see a reorg |
 | Finance-first chain | Demo is a fair allocation for an oversubscribed USDC sale, not a casino |
 
 ## 3. Users
@@ -37,7 +37,7 @@ There is no oracle operator to trust and no admin keys. The only trust assumptio
 ## 4. MVP scope (binding)
 
 1. **ArcDrawCoordinator** (Solidity, immutable, no owner)
-   - `requestRandomness` pins round `currentRound(block.timestamp) + 2`, with an optional USDC bounty.
+   - `requestRandomness` pins round `currentRound(block.timestamp) + 4`, with an optional USDC bounty (raised from +2 after the pre-mainnet audit, finding L1).
    - `fulfill` / `fulfillBatch` verify the drand quicknet signature once per round and reuse it.
    - The per-request randomness is `keccak256(drandRandomness, chainId, coordinator, requestId)`.
    - The consumer callback is gas-limited. If it fails, the fulfillment still goes through.
@@ -76,7 +76,7 @@ There is no oracle operator to trust and no admin keys. The only trust assumptio
 | Chainlink/Randamu/Pyth launch VRF on Arc first | Novelty drops | Ship mainnet early. Stay permissionless and open, with no subscription |
 | randa-mu/bls-solidity is unaudited | Forged randomness | Vendor at a pinned commit, add negative tests (wrong round, flipped flag bits, non-canonical x), label as **experimental** |
 | drand quicknet retired or League of Entropy threshold compromised | Randomness predictable or unavailable | Document the trust model. v2 adds beacon-pluggable coordinators. Consumers can refund |
-| `block.timestamp` lagging real time by >= 3s | Pinned round already public at request time | +2 round margin (>3s strictly). Document it. The relayer alerts when it sees a fulfillable round in the same block as the request |
+| `block.timestamp` lagging real time by >= 9s | Pinned round already public at request time | +4 round margin (>9s strictly; was +2 before audit finding L1). Document it. The relayer alerts when it sees a fulfillable round in the same block as the request |
 | Relayer offline | Latency | Anyone can fulfill. The SDK exposes `fulfill`. The web app has a "fulfill it yourself" button |
 | Callback gas griefing (63/64 rule) | Callback starved | Check `gasleft()` before the call and revert the whole fulfill if it is insufficient |
 | USDC blocklist on requester/fulfiller | Refund/bounty transfer reverts | Documented. It does not affect randomness delivery when bounty = 0 |

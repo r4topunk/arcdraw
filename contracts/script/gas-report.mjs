@@ -66,8 +66,11 @@ md += `
 - An **invalid** signature that passes the cheap encoding checks (compression flag, infinity flag, x < p) but is not a valid
   G1 point makes the EIP-2537 precompile fail, which consumes all gas forwarded to it (about 5M gas in the tests).
   Always verify the beacon offchain (\`verifyBeacon\` in the SDK) and simulate before sending.
-- \`fulfill\` needs \`callbackGasLimit + callbackGasLimit/63 + 5,000\` gas left at the callback, otherwise it reverts with
-  \`InsufficientGasForCallback\`. Estimate with \`eth_estimateGas\` and add headroom for the callback.
+- \`fulfill\` needs \`callbackGasLimit + callbackGasLimit/63 + 5,000\` gas left at each callback, otherwise it reverts with
+  \`InsufficientGasForCallback\`. Do **not** size the gas limit from \`eth_estimateGas\` alone: a consumer can be cheap in
+  simulation (for example when \`tx.gasprice == 0\`) and burn its full budget onchain. Use
+  \`worstCaseFulfillBatchGas\` from the SDK (every callback at its full budget), checked in
+  \`test/FulfillBatchGasLimit.t.sol\`.
 - \`.gas-snapshot\` (from \`forge snapshot\`) tracks per-test gas for regressions; this file tracks per-call costs.
 `;
 writeFileSync(resolve(contracts, "../docs/GAS.md"), md);

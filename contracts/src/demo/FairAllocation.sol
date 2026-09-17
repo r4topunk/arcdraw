@@ -63,6 +63,8 @@ contract FairAllocation is ArcDrawConsumer {
     mapping(uint256 saleId => uint256) public treasuryOwed;
     /// @notice Unused bounty escrow credited to the creator at finalize, pulled with `withdrawCreatorBounty`.
     mapping(uint256 saleId => uint96) public creatorOwed;
+    /// @notice Where creator payouts (unused or refunded bounty) go; 0 = the creator itself.
+    mapping(uint256 saleId => address) public creatorPayee;
 
     event SaleCreated(
         uint256 indexed saleId,
@@ -80,6 +82,8 @@ contract FairAllocation is ArcDrawConsumer {
     event BountyReclaimed(uint256 indexed saleId, address indexed creator, uint96 amount);
     event TreasuryWithdrawn(uint256 indexed saleId, address indexed treasury, uint256 amount);
     event DrawCancelled(uint256 indexed saleId, uint256 indexed requestId);
+    event TreasuryUpdated(uint256 indexed saleId, address indexed treasury);
+    event CreatorPayeeUpdated(uint256 indexed saleId, address indexed payee);
 
     error InvalidSaleParams();
     error WrongPhase(uint256 saleId, Phase phase);
@@ -93,6 +97,7 @@ contract FairAllocation is ArcDrawConsumer {
     error NothingOwed(uint256 saleId);
     error RequestNotFulfilled(uint256 saleId, uint256 requestId);
     error DrawNotTimedOut(uint256 saleId, uint64 cancellableAt);
+    error NotCreator(uint256 saleId, address caller);
 
     constructor(IArcDrawCoordinator coordinator_) ArcDrawConsumer(coordinator_) {
         usdc = IERC20Minimal(coordinator_.USDC());
@@ -196,7 +201,7 @@ contract FairAllocation is ArcDrawConsumer {
         emit Finalized(saleId, winners, raised);
     }
 
-    /// @notice Pay the finalized proceeds to the sale treasury. Permissionless; the recipient is fixed.
+    /// @notice Pay the finalized proceeds to the sale treasury. Permissionless; the recipient is `sale.treasury`.
     function withdrawTreasury(uint256 saleId) external {
         uint256 amount = treasuryOwed[saleId];
         if (amount == 0) revert NothingOwed(saleId);
@@ -206,14 +211,33 @@ contract FairAllocation is ArcDrawConsumer {
         emit TreasuryWithdrawn(saleId, treasury, amount);
     }
 
-    /// @notice Return the unused bounty escrow of an undrawn sale to its creator. Permissionless.
+    /// @notice Return the unused bounty escrow of an undrawn sale to its creator (or `creatorPayee`). Permissionless.
     function withdrawCreatorBounty(uint256 saleId) external {
         uint96 amount = creatorOwed[saleId];
         if (amount == 0) revert NothingOwed(saleId);
         creatorOwed[saleId] = 0;
-        address creator = _sales[saleId].creator;
-        usdc.safeTransfer(creator, amount);
-        emit BountyReclaimed(saleId, creator, amount);
+        address payee = _creatorPayout(saleId);
+        usdc.safeTransfer(payee, amount);
+        emit BountyReclaimed(saleId, payee, amount);
+    }
+
+    /// @notice Creator only: move the sale proceeds to another treasury, for example when the current one is
+    ///         blocklisted by USDC (which would otherwise lock `treasuryOwed` forever). Any phase.
+    /// @dev Subscribers are unaffected: refunds never depend on the treasury.
+    function setTreasury(uint256 saleId, address newTreasury) external {
+        Sale storage sale = _onlyCreator(saleId);
+        if (newTreasury == address(0)) revert InvalidSaleParams();
+        sale.treasury = newTreasury;
+        emit TreasuryUpdated(saleId, newTreasury);
+    }
+
+    /// @notice Creator only: send creator payouts (`withdrawCreatorBounty`, `reclaimBounty`) to `payee` instead of
+    ///         the creator address, for example when the creator is blocklisted by USDC.
+    function setCreatorPayee(uint256 saleId, address payee) external {
+        _onlyCreator(saleId);
+        if (payee == address(0)) revert InvalidSaleParams();
+        creatorPayee[saleId] = payee;
+        emit CreatorPayeeUpdated(saleId, payee);
     }
 
     /// @notice Recover a draw whose ArcDraw callback did not land (for example it ran out of gas): copy the
@@ -264,7 +288,7 @@ contract FairAllocation is ArcDrawConsumer {
     }
 
     /// @notice If ArcDraw refunded the draw's bounty (request expired before fulfillment), forward it to the
-    ///         sale creator. The draw itself stays fulfillable, so this never affects the outcome.
+    ///         sale creator (or `creatorPayee`). The draw itself stays fulfillable, so this never affects the outcome.
     /// @dev Keyed on `coordinator.refundedBounty`, which survives a late fulfillment, so the call can be made
     ///      before or after the draw completes.
     function reclaimBounty(uint256 saleId) external {
@@ -274,8 +298,9 @@ contract FairAllocation is ArcDrawConsumer {
         uint96 bounty = coordinator.refundedBounty(requestId);
         if (bounty == 0) revert BountyNotReclaimable(saleId);
         bountyReclaimed[saleId] = true;
-        usdc.safeTransfer(sale.creator, bounty);
-        emit BountyReclaimed(saleId, sale.creator, bounty);
+        address payee = _creatorPayout(saleId);
+        usdc.safeTransfer(payee, bounty);
+        emit BountyReclaimed(saleId, payee, bounty);
     }
 
     // ------------------------------------------------------------------ views
@@ -316,6 +341,16 @@ contract FairAllocation is ArcDrawConsumer {
     }
 
     // ------------------------------------------------------------------ internals
+
+    function _onlyCreator(uint256 saleId) internal view returns (Sale storage sale) {
+        sale = _sales[saleId];
+        if (sale.phase == Phase.None || msg.sender != sale.creator) revert NotCreator(saleId, msg.sender);
+    }
+
+    function _creatorPayout(uint256 saleId) internal view returns (address) {
+        address payee = creatorPayee[saleId];
+        return payee == address(0) ? _sales[saleId].creator : payee;
+    }
 
     function _subscribe(uint256 saleId, address account) internal {
         Sale storage sale = _sales[saleId];

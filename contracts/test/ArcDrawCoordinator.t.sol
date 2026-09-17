@@ -41,7 +41,7 @@ contract ArcDrawCoordinatorTest is BaseTest {
         assertEq(coord.USDC(), ARC_USDC);
         assertEq(coord.GENESIS_TIME(), 1692803367);
         assertEq(coord.PERIOD(), 3);
-        assertEq(coord.MIN_ROUND_DELAY(), 2);
+        assertEq(coord.MIN_ROUND_DELAY(), 4);
         assertEq(coord.MAX_ROUND_DELAY(), 10_512_000);
         assertEq(coord.MAX_CALLBACK_GAS_LIMIT(), 500_000);
         assertEq(coord.REQUEST_TIMEOUT(), 3600);
@@ -73,13 +73,33 @@ contract ArcDrawCoordinatorTest is BaseTest {
         assertEq(coord.maxRequestRound(), c + coord.MAX_ROUND_DELAY());
     }
 
-    /// @notice SPEC section 2: the pinned round is published strictly more than one period after block.timestamp.
+    /// @notice SPEC section 2: the pinned round is published strictly more than three periods after block.timestamp.
     function testFuzz_minRequestRound_safetyMargin(uint64 t) public {
         t = uint64(bound(t, GENESIS, type(uint32).max * uint64(8)));
         vm.warp(t);
         uint64 ts = coord.roundTimestamp(coord.minRequestRound());
-        assertGt(ts, t + 3);
-        assertLe(ts, t + 6);
+        assertGt(ts, t + 9);
+        assertLe(ts, t + 12);
+    }
+
+    /// @notice I1: roundTimestamp saturates instead of wrapping for rounds past the uint64 time range.
+    function test_roundTimestamp_saturatesForHugeRounds() public view {
+        assertEq(coord.roundTimestamp(type(uint64).max), type(uint64).max);
+        uint64 lastExact = uint64((uint256(type(uint64).max) - GENESIS) / 3 + 1);
+        assertEq(coord.roundTimestamp(lastExact), GENESIS + (lastExact - 1) * 3);
+        assertEq(coord.roundTimestamp(lastExact + 1), type(uint64).max);
+    }
+
+    function testFuzz_roundTimestamp_monotonicNoWrap(uint64 a, uint64 b) public view {
+        if (a > b) (a, b) = (b, a);
+        assertLe(coord.roundTimestamp(a), coord.roundTimestamp(b));
+    }
+
+    /// @notice I1: a huge round can never look already published (it used to wrap to a past timestamp).
+    function test_verifyRound_hugeRound_notReached() public {
+        uint64 round = type(uint64).max;
+        vm.expectRevert(abi.encodeWithSelector(IArcDrawCoordinator.RoundNotReached.selector, round, type(uint64).max));
+        coord.verifyRound(round, sigOf(round));
     }
 
     function test_equalTimestamps_sameRoundDistinctIds() public {
@@ -98,7 +118,7 @@ contract ArcDrawCoordinatorTest is BaseTest {
         assertEq(id2 + 1, id3);
 
         uint64 round = r1;
-        assertGt(coord.roundTimestamp(round), block.timestamp + 3);
+        assertGt(coord.roundTimestamp(round), block.timestamp + 9);
         warpToRound(round);
         vm.prank(relayer);
         coord.fulfill(id1, sigOf(round));

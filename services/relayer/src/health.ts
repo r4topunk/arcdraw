@@ -27,6 +27,7 @@ export function startHealthServer(opts: {
       fulfilledTotal: m.fulfilledTotal,
       txSent: m.txSent,
       txReverted: m.txReverted,
+      quarantined: m.quarantined,
     });
     res.writeHead(healthy ? 200 : 503, { "content-type": "application/json" }).end(body);
   });

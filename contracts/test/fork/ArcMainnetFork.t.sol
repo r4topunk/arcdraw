@@ -62,8 +62,8 @@ contract ArcMainnetForkTest is Test {
     function test_fork_blockTimestampRoundMathMargin() public onlyFork {
         ArcDrawCoordinator c = new ArcDrawCoordinator(USDC);
         uint64 min = c.minRequestRound();
-        assertGt(c.roundTimestamp(min), block.timestamp + 3);
-        assertLe(c.roundTimestamp(min), block.timestamp + 6);
+        assertGt(c.roundTimestamp(min), block.timestamp + 9);
+        assertLe(c.roundTimestamp(min), block.timestamp + 12);
         console2.log("fork block", block.number, "currentRound", c.currentRound());
     }
 
@@ -80,7 +80,7 @@ contract ArcMainnetForkTest is Test {
         ArcDrawCoordinator c = new ArcDrawCoordinator(USDC);
         RecordingConsumer consumer = new RecordingConsumer(c);
         // Rewind the local fork clock so a real past beacon can be the pinned round.
-        vm.warp(c.roundTimestamp(Quicknet.ROUND_A - 2));
+        vm.warp(c.roundTimestamp(Quicknet.ROUND_A - 4));
         (uint256 id, uint64 round) = consumer.request(150_000, 0);
         assertEq(round, Quicknet.ROUND_A);
         vm.warp(c.roundTimestamp(round));
@@ -121,7 +121,7 @@ contract ArcMainnetForkTest is Test {
         address fulfiller = address(0xF0F0);
         vm.deal(requester, 1e18);
         IUSDCView(USDC).approve(address(c), 10_000);
-        vm.warp(c.roundTimestamp(Quicknet.ROUND_A - 2));
+        vm.warp(c.roundTimestamp(Quicknet.ROUND_A - 4));
         try c.requestRandomness{gas: 2_000_000}(0, 10_000) returns (uint256 id, uint64) {
             assertEq(IUSDCView(USDC).balanceOf(address(c)), 10_000);
             vm.warp(c.roundTimestamp(Quicknet.ROUND_A));

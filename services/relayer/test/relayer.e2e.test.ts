@@ -117,6 +117,8 @@ suite("relayer against anvil (Osaka) with real quicknet signatures", () => {
       chainId: 31337,
       dryRun: o.dryRun,
       startBlock: 0n,
+      // These scenarios use zero-bounty requests: sponsor everything (the profitability gate has its own tests).
+      costMarginPct: 0,
       retry: { attempts: 2, baseDelayMs: 1, maxDelayMs: 2 },
     });
   };
@@ -172,8 +174,8 @@ suite("relayer against anvil (Osaka) with real quicknet signatures", () => {
     expect([a.requestId, b.requestId, c.requestId, d.requestId]).toEqual([1n, 2n, 3n, 4n]);
     expect(a.round).toBe(1000000n);
 
-    // Consumer request through requestRandomness(): at roundTime(999998) the pinned round is 1000000.
-    await rpc("evm_setNextBlockTimestamp", [Number(roundTime(999998n))]);
+    // Consumer request through requestRandomness(): at roundTime(999996) the pinned round is 1000000.
+    await rpc("evm_setNextBlockTimestamp", [Number(roundTime(999996n))]);
     const hash = await requesterWallet.writeContract({
       address: consumer,
       abi: consumerAbi,
@@ -312,8 +314,9 @@ suite("relayer against anvil (Osaka) with real quicknet signatures", () => {
     const withInflight = makeRelayer({ dryRun: false, store });
     await withInflight.tick(); // populate cursor + pending
     const st = (await store.load()) as NonNullable<Awaited<ReturnType<MemoryStateStore["load"]>>>;
-    st.inflight.set(req.round, {
+    st.inflight.set(`0x${"ab".repeat(32)}`, {
       txHash: `0x${"ab".repeat(32)}`,
+      round: req.round,
       requestIds: [req.requestId],
       sentAt: Date.now(),
     });

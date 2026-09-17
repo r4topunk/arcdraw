@@ -10,18 +10,18 @@
 |---|---:|---:|---|
 | `requestRandomness_noBounty` | 94,208 | 0.00188 | `requestRandomness(0, 0)`, first request (requestCount 0 -> 1) |
 | `requestRandomness_bounty` | 119,731 | 0.00239 | `requestRandomness(100_000, 0.01 USDC)` incl. USDC transferFrom |
-| `verifyRound_fresh` | 257,192 | 0.00514 | `verifyRound` with a real quicknet signature (BLS verify + store + event) |
-| `fulfill_freshRound_bounty_noCallback` | 313,410 | 0.00627 | `fulfill`, fresh round, bounty paid, EOA requester |
+| `verifyRound_fresh` | 257,225 | 0.00514 | `verifyRound` with a real quicknet signature (BLS verify + store + event) |
+| `fulfill_freshRound_bounty_noCallback` | 313,443 | 0.00627 | `fulfill`, fresh round, bounty paid, EOA requester |
 | `fulfill_verifiedRound_bounty_noCallback` | 75,845 | 0.00152 | `fulfill`, round already verified (signature omitted) |
-| `fulfill_freshRound_bounty_fairAllocationCallback` | 345,720 | 0.00691 | `fulfill`, fresh round, bounty, FairAllocation callback |
-| `fulfillBatch_freshRound_5ids_bounty_noCallback` | 446,870 | 0.00894 | `fulfillBatch`, fresh round, 5 ids, one bounty transfer |
-| `refund_bounty` | 71,860 | 0.00144 | `refund` after expiry, bounty returned |
-| `fairAllocation_createSale_bounty` | 161,839 | 0.00324 | FairAllocation `createSale` with 0.01 USDC bounty escrow |
-| `fairAllocation_subscribe` | 98,421 | 0.00197 | FairAllocation `subscribe` (second subscriber) |
-| `fairAllocation_draw` | 198,092 | 0.00396 | FairAllocation `draw` (approve + requestRandomness) |
+| `fulfill_freshRound_bounty_fairAllocationCallback` | 345,787 | 0.00692 | `fulfill`, fresh round, bounty, FairAllocation callback |
+| `fulfillBatch_freshRound_5ids_bounty_noCallback` | 446,903 | 0.00894 | `fulfillBatch`, fresh round, 5 ids, one bounty transfer |
+| `refund_bounty` | 71,893 | 0.00144 | `refund` after expiry, bounty returned |
+| `fairAllocation_createSale_bounty` | 161,935 | 0.00324 | FairAllocation `createSale` with 0.01 USDC bounty escrow |
+| `fairAllocation_subscribe` | 98,504 | 0.00197 | FairAllocation `subscribe` (second subscriber) |
+| `fairAllocation_draw` | 198,118 | 0.00396 | FairAllocation `draw` (approve + requestRandomness) |
 | `fairAllocation_finalize_N5_K3` | 83,511 | 0.00167 | FairAllocation `finalize`, N=5, K=3 (credits the treasury) |
-| `fairAllocation_withdrawTreasury` | 48,604 | 0.00097 | FairAllocation `withdrawTreasury` (pull proceeds) |
-| `fairAllocation_claimRefund` | 97,190 | 0.00194 | FairAllocation `claimRefund` (loser) |
+| `fairAllocation_withdrawTreasury` | 48,718 | 0.00097 | FairAllocation `withdrawTreasury` (pull proceeds) |
+| `fairAllocation_claimRefund` | 97,248 | 0.00194 | FairAllocation `claimRefund` (loser) |
 
 ## Other measurements (non-isolated tests, see `forge test -vv`)
 
@@ -38,6 +38,9 @@
 - An **invalid** signature that passes the cheap encoding checks (compression flag, infinity flag, x < p) but is not a valid
   G1 point makes the EIP-2537 precompile fail, which consumes all gas forwarded to it (about 5M gas in the tests).
   Always verify the beacon offchain (`verifyBeacon` in the SDK) and simulate before sending.
-- `fulfill` needs `callbackGasLimit + callbackGasLimit/63 + 5,000` gas left at the callback, otherwise it reverts with
-  `InsufficientGasForCallback`. Estimate with `eth_estimateGas` and add headroom for the callback.
+- `fulfill` needs `callbackGasLimit + callbackGasLimit/63 + 5,000` gas left at each callback, otherwise it reverts with
+  `InsufficientGasForCallback`. Do **not** size the gas limit from `eth_estimateGas` alone: a consumer can be cheap in
+  simulation (for example when `tx.gasprice == 0`) and burn its full budget onchain. Use
+  `worstCaseFulfillBatchGas` from the SDK (every callback at its full budget), checked in
+  `test/FulfillBatchGasLimit.t.sol`.
 - `.gas-snapshot` (from `forge snapshot`) tracks per-test gas for regressions; this file tracks per-call costs.

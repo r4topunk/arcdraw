@@ -32,7 +32,7 @@ contract GasScenariosTest is Test {
         usdc.mint(relayer, 1e6); // non-zero balance, as a live relayer would have
         vm.prank(alice);
         usdc.approve(address(coord), type(uint256).max);
-        vm.warp(coord.roundTimestamp(Quicknet.ROUND_A - 2));
+        vm.warp(coord.roundTimestamp(Quicknet.ROUND_A - 4));
     }
 
     function test_gas_request() public {
@@ -86,7 +86,7 @@ contract GasScenariosTest is Test {
 
     function test_gas_fairAllocation() public {
         FairAllocation fa = new FairAllocation(coord);
-        uint64 deadline = coord.roundTimestamp(Quicknet.ROUND_A - 2);
+        uint64 deadline = coord.roundTimestamp(Quicknet.ROUND_A - 4);
         vm.warp(deadline - 100);
         address creator = makeAddr("creator");
         usdc.mint(creator, 1e6);

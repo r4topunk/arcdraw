@@ -1,5 +1,6 @@
 "use client";
 
+import { COORDINATOR_LIMITS } from "@arcdraw/sdk";
 import { ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fetchBeacon, QUICKNET, roundAt, roundTime, verifyBeacon, type Beacon } from "@/lib/drand";
@@ -82,7 +83,7 @@ export function LiveBeacon() {
           <div className="text-right">
             <p className="text-xs text-muted-foreground">A request now pins</p>
             <p className="tabular font-mono text-lg text-signal-ink">
-              {current ? `#${(current + 2n).toLocaleString("en-US")}` : "…"}
+              {current ? `#${(current + COORDINATOR_LIMITS.minRoundDelay).toLocaleString("en-US")}` : "…"}
             </p>
           </div>
         </div>

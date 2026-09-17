@@ -41,12 +41,12 @@ const whyArc = [
   { k: "PREVRANDAO = 0", v: "Arc exposes no onchain entropy, and no VRF provider is live yet. Every fair draw needs an external source." },
   { k: "EIP-2537", v: "BLS12-381 precompiles at 0x0b–0x11 make a full drand signature check affordable onchain." },
   { k: "USDC gas", v: "Costs and bounties are in the same stable unit. A fresh-round verification is under a cent." },
-  { k: "~0.5s finality", v: "Deterministic finality means consumers never see a reorged random value. Latency is the drand period plus one block." },
+  { k: "~0.5s finality", v: "Deterministic finality means consumers never see a reorged random value. Latency is the 4-round safety delay plus one block." },
 ];
 
 const trust = [
   { who: "drand League of Entropy", can: "Bias or predict rounds only if a threshold of independent operators colludes", cannot: "—" },
-  { who: "Requester", can: "Choose the round (≥ current + 2) and callback gas", cannot: "See the outcome first, or reroll by refunding" },
+  { who: "Requester", can: "Choose the round (≥ current + 4) and callback gas", cannot: "See the outcome first, or reroll by refunding" },
   { who: "Relayer / fulfiller", can: "Delay delivery, race for the bounty", cannot: "Forge randomness, starve or revert your callback" },
   { who: "Deployer", can: "Nothing after deployment", cannot: "Upgrade, pause or change the drand key" },
 ];
@@ -103,7 +103,7 @@ export default function Home() {
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Request → result</dt>
-                <dd className="text-display tabular mt-1 text-lg font-semibold sm:text-2xl">~6–12s</dd>
+                <dd className="text-display tabular mt-1 text-lg font-semibold sm:text-2xl">~10–15s</dd>
               </div>
             </dl>
           </div>

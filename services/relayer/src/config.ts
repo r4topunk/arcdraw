@@ -53,6 +53,21 @@ export const envSchema = z.object({
     .default("0")
     .refine((v) => /^\d+(\.\d{1,6})?$/.test(v.trim()), "USDC amount with at most 6 decimals")
     .transform((v) => parseUnits(v.trim(), 6)),
+  /** Percent of the worst-case gas cost that the bounties of a batch must cover. 0 = sponsor every request. */
+  RELAYER_COST_MARGIN_PCT: intFromEnv(120, 0),
+  /** Comma-separated requester addresses relayed regardless of bounty (e.g. your own demo contracts). */
+  RELAYER_SPONSORED_REQUESTERS: z
+    .string()
+    .default("")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(address)),
+  /** Largest callbackGasLimit this relayer pays for (the coordinator allows up to 500,000). */
+  RELAYER_MAX_CALLBACK_GAS: z.coerce.number().int().min(0).max(500_000).default(500_000),
   RELAYER_MAX_GAS_PRICE_GWEI: z
     .string()
     .default("100")
@@ -82,6 +97,9 @@ export type RelayerConfig = {
   drandTimeoutMs: number;
   pollMs: number;
   minBounty: bigint;
+  costMarginPct: number;
+  sponsoredRequesters: Address[];
+  maxCallbackGas: number;
   maxGasPrice: bigint;
   maxBatch: number;
   gasBufferPct: number;
@@ -132,6 +150,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     drandTimeoutMs: e.DRAND_TIMEOUT_MS,
     pollMs: e.RELAYER_POLL_MS,
     minBounty: e.RELAYER_MIN_BOUNTY,
+    costMarginPct: e.RELAYER_COST_MARGIN_PCT,
+    sponsoredRequesters: e.RELAYER_SPONSORED_REQUESTERS,
+    maxCallbackGas: e.RELAYER_MAX_CALLBACK_GAS,
     maxGasPrice: e.RELAYER_MAX_GAS_PRICE_GWEI,
     maxBatch: e.RELAYER_MAX_BATCH,
     gasBufferPct: e.RELAYER_GAS_BUFFER_PCT,

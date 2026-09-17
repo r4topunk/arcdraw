@@ -1,5 +1,6 @@
 "use client";
 
+import { COORDINATOR_LIMITS } from "@arcdraw/sdk";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Search } from "lucide-react";
 import Link from "next/link";
@@ -83,7 +84,7 @@ function Live({ coordinator }: { coordinator: Address }) {
         <Stat label="Coordinator" value={<AddressLink address={coordinator} />} />
         <Stat label="Requests created" value={count.data !== undefined ? formatInt(count.data) : "…"} />
         <Stat label="drand round now" value={current ? `#${formatInt(current)}` : "…"} />
-        <Stat label="Next request pins" value={current ? `#${formatInt(current + 2n)}` : "…"} />
+        <Stat label="Next request pins" value={current ? `#${formatInt(current + COORDINATOR_LIMITS.minRoundDelay)}` : "…"} />
       </dl>
       {count.error && <Alert variant="danger">Could not read the coordinator: {explainError(count.error)}</Alert>}
 

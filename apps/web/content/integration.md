@@ -70,9 +70,10 @@ function requestRandomnessAtRound(uint64 round, uint32 callbackGasLimit, uint96 
     external returns (uint256 requestId);
 ```
 
-- `requestRandomness` pins `currentRound(block.timestamp) + 2`, which drand publishes 3 to 6 seconds later.
+- `requestRandomness` pins `currentRound(block.timestamp) + 4`, which drand publishes 9 to 12 seconds later.
 - `requestRandomnessAtRound` pins any round between `minRequestRound()` and `maxRequestRound()` (about a year ahead), for draws that must happen at a scheduled time.
 - `bounty` is optional. With `0` you rely on voluntary relayers, or you fulfill yourself from the [app](/app/). A bounty of 0.01 USDC is `10_000` units.
+- The reference relayer fulfills when the bounties of a batch cover 120% of its worst-case gas (`worstCaseFulfillBatchGas` in the SDK): about 370k gas for a lone request on a fresh round, plus `callbackGasLimit * 64/63 + 50k` per request with a callback. At the 20 gwei floor, 0.01 USDC covers a request without callback.
 
 From TypeScript with viem:
 

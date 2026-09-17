@@ -127,11 +127,14 @@ export type RequestOptions = {
   callbackGasLimit?: number;
   /** USDC bounty in base units (6 decimals) paid to the fulfiller. Approved automatically. */
   bounty?: bigint;
-  /** Pin a specific round (>= minRequestRound). Default: currentRound + 2. */
+  /** Pin a specific round (>= minRequestRound). Default: currentRound + 4. */
   round?: bigint;
 };
 
 export type TxOverrides = { account?: Account | Address };
+
+/** EIP-1559 fee fields used for a simulation, so `tx.gasprice` is not 0 in `eth_call` / `eth_estimateGas`. */
+export type SimulationFees = { maxFeePerGas: bigint; maxPriorityFeePerGas?: bigint };
 
 /** Explicit nonce and EIP-1559 fees, used to replace a stuck transaction instead of sending a second one. */
 export type ReplacementOverrides = { nonce?: number; maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint };
@@ -407,25 +410,35 @@ export function createArcDraw(config: ArcDrawConfig): ArcDrawClient {
       });
     },
 
-    /** Simulate `fulfillBatch` (eth_call + eth_estimateGas only; sends nothing). */
+    /**
+     * Simulate `fulfillBatch` (eth_call + eth_estimateGas only; sends nothing).
+     * Pass `fees` to simulate with the fee fields of the real transaction: without them nodes run the call with
+     * `tx.gasprice == 0`, which a consumer can detect. The estimate is still not a safe gas limit on its own,
+     * see `worstCaseFulfillBatchGas`.
+     */
     async simulateFulfillBatch(
       round: bigint,
       ids: readonly bigint[],
-      o: { beacon?: Beacon; account: Account | Address },
+      o: { beacon?: Beacon; account: Account | Address; fees?: SimulationFees },
     ): Promise<{ gas: bigint; signature: Hex }> {
       const signature = await signatureFor(round, o.beacon);
+      const fees = o.fees
+        ? { maxFeePerGas: o.fees.maxFeePerGas, maxPriorityFeePerGas: o.fees.maxPriorityFeePerGas ?? 0n }
+        : {};
       return wrap("fulfillBatch", async () => {
         await publicClient.simulateContract({
           ...contract,
           functionName: "fulfillBatch",
           args: [round, signature, [...ids]],
           account: o.account,
+          ...fees,
         });
         const gas = await publicClient.estimateContractGas({
           ...contract,
           functionName: "fulfillBatch",
           args: [round, signature, [...ids]],
           account: o.account,
+          ...fees,
         });
         return { gas, signature };
       });
@@ -537,7 +550,7 @@ export interface ArcDrawClient {
   simulateFulfillBatch(
     round: bigint,
     ids: readonly bigint[],
-    o: { beacon?: Beacon; account: Account | Address },
+    o: { beacon?: Beacon; account: Account | Address; fees?: SimulationFees },
   ): Promise<{ gas: bigint; signature: Hex }>;
   fulfillBatch(
     round: bigint,

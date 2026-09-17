@@ -102,7 +102,7 @@ interface IArcDrawCoordinator {
     function USDC() external view returns (address);
     function GENESIS_TIME() external view returns (uint64); // 1692803367
     function PERIOD() external view returns (uint64); // 3
-    function MIN_ROUND_DELAY() external view returns (uint64); // 2
+    function MIN_ROUND_DELAY() external view returns (uint64); // 4 (pinned round published > 9 s after block.timestamp)
     function MAX_ROUND_DELAY() external view returns (uint64); // 10_512_000 (~1 year of 3s rounds)
     function MAX_CALLBACK_GAS_LIMIT() external view returns (uint32); // 500_000
     function REQUEST_TIMEOUT() external view returns (uint64); // 3600 seconds after the round timestamp
@@ -120,7 +120,7 @@ interface IArcDrawCoordinator {
     function minRequestRound() external view returns (uint64);
     /// @notice currentRound() + MAX_ROUND_DELAY.
     function maxRequestRound() external view returns (uint64);
-    /// @notice GENESIS_TIME + (round - 1) * PERIOD (GENESIS_TIME for round 0).
+    /// @notice GENESIS_TIME + (round - 1) * PERIOD (GENESIS_TIME for round 0), saturating at type(uint64).max.
     function roundTimestamp(uint64 round) external view returns (uint64);
     /// @notice roundTimestamp(request.round) + REQUEST_TIMEOUT.
     function expiresAt(uint256 requestId) external view returns (uint64);

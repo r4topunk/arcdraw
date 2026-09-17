@@ -133,7 +133,15 @@ describe("state", () => {
     const s = emptyState(5042, COORD);
     s.lastScannedBlock = 123n;
     s.pending.set(7n, { round: 1000000n, bounty: 10_000n });
-    s.inflight.set(1000000n, { txHash: `0x${"11".repeat(32)}`, requestIds: [7n], sentAt: 1 });
+    s.inflight.set(`0x${"11".repeat(32)}`, {
+      txHash: `0x${"11".repeat(32)}`,
+      round: 1000000n,
+      requestIds: [7n],
+      sentAt: 1,
+      nonce: 3,
+    });
+    s.quarantine.set(7n, { strikes: 2, notBefore: 99, maxGroup: 1 });
+    s.quarantine.set(8n, { strikes: 0, notBefore: 5 });
     expect(parseState(serializeState(s))).toEqual(s);
 
     const dir = await mkdtemp(join(tmpdir(), "arcdraw-state-"));
@@ -146,6 +154,54 @@ describe("state", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("state migration", () => {
+  it("reads state files written before per-transaction inflight tracking (keyed by round, no quarantine)", () => {
+    const legacy = JSON.stringify({
+      version: 1,
+      chainId: 5042,
+      coordinator: COORD,
+      lastScannedBlock: "10",
+      pending: { "7": { round: "1000000", bounty: "0" } },
+      inflight: { "1000000": { txHash: `0x${"22".repeat(32)}`, requestIds: ["7"], sentAt: 5, nonce: 1 } },
+    });
+    const s = parseState(legacy);
+    expect([...s.inflight.values()]).toEqual([
+      { txHash: `0x${"22".repeat(32)}`, round: 1000000n, requestIds: [7n], sentAt: 5, nonce: 1 },
+    ]);
+    expect(s.inflight.has(`0x${"22".repeat(32)}`)).toBe(true);
+    expect(s.quarantine.size).toBe(0);
+  });
+});
+
+describe("profitability config (R2)", () => {
+  it("defaults to a 120% cost margin, no sponsors and the coordinator's callback gas maximum", () => {
+    const c = loadConfig({ COORDINATOR_ADDRESS: COORD, RELAYER_DRY_RUN: "true" });
+    expect(c.costMarginPct).toBe(120);
+    expect(c.sponsoredRequesters).toEqual([]);
+    expect(c.maxCallbackGas).toBe(500_000);
+  });
+
+  it("parses sponsors and caps, and rejects bad values", () => {
+    const c = loadConfig({
+      COORDINATOR_ADDRESS: COORD,
+      RELAYER_DRY_RUN: "true",
+      RELAYER_COST_MARGIN_PCT: "0",
+      RELAYER_SPONSORED_REQUESTERS: ` ${COORD.toUpperCase().replace("0X", "0x")} , 0x000000000000000000000000000000000000bEEF`,
+      RELAYER_MAX_CALLBACK_GAS: "100000",
+    });
+    expect(c.costMarginPct).toBe(0);
+    expect(c.sponsoredRequesters).toEqual([
+      "0x00000000000000000000000000000000A4Cd4A11",
+      "0x000000000000000000000000000000000000bEEF",
+    ]);
+    expect(c.maxCallbackGas).toBe(100_000);
+    const base = { COORDINATOR_ADDRESS: COORD, RELAYER_DRY_RUN: "true" };
+    expect(() => loadConfig({ ...base, RELAYER_SPONSORED_REQUESTERS: "0x1234" })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...base, RELAYER_MAX_CALLBACK_GAS: "500001" })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...base, RELAYER_COST_MARGIN_PCT: "-1" })).toThrow(ConfigError);
   });
 });
 

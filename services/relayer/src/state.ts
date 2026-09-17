@@ -4,8 +4,11 @@ import type { Address, Hash } from "viem";
 import { z } from "zod";
 
 export type PendingRequest = { round: bigint; bounty: bigint };
+
+/** One sent `fulfillBatch` transaction. Tracked per transaction (not per round), so batches never share a record. */
 export type InflightTx = {
   txHash: Hash;
+  round: bigint;
   requestIds: bigint[];
   sentAt: number;
   /** Sender nonce and fees, read back after sending; used to replace (not duplicate) a stuck tx. */
@@ -13,6 +16,12 @@ export type InflightTx = {
   maxFeePerGas?: bigint | undefined;
   maxPriorityFeePerGas?: bigint | undefined;
 };
+
+/**
+ * Backoff for a request id. `maxGroup` is set after an onchain batch revert (bisection: the id is only sent in
+ * batches of at most that size); `strikes` counts reverts of batches that contained only this id.
+ */
+export type QuarantineEntry = { strikes: number; notBefore: number; maxGroup?: number | undefined };
 
 /** Everything the relayer persists. No database: one JSON file, written atomically. */
 export type RelayerState = {
@@ -22,8 +31,10 @@ export type RelayerState = {
   /** Last block whose logs were fully processed; -1 before the first scan. */
   lastScannedBlock: bigint;
   pending: Map<bigint, PendingRequest>;
-  /** Sent but unconfirmed batches by round; checked before any resubmission (idempotency across restarts). */
-  inflight: Map<bigint, InflightTx>;
+  /** Sent but unconfirmed batches by tx hash; checked before any resubmission (idempotency across restarts). */
+  inflight: Map<Hash, InflightTx>;
+  /** Request ids that are backed off (onchain reverts, bisection, unprofitable at the current gas price). */
+  quarantine: Map<bigint, QuarantineEntry>;
 };
 
 const big = z
@@ -37,10 +48,12 @@ const fileSchema = z.object({
   coordinator: z.string(),
   lastScannedBlock: big,
   pending: z.record(z.string(), z.object({ round: big, bounty: big })),
+  /** Keyed by tx hash. Files written before per-tx tracking are keyed by round and have no `round` field. */
   inflight: z.record(
     z.string(),
     z.object({
       txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+      round: big.optional(),
       requestIds: z.array(big),
       sentAt: z.number(),
       nonce: z.number().int().nonnegative().optional(),
@@ -48,10 +61,28 @@ const fileSchema = z.object({
       maxPriorityFeePerGas: big.optional(),
     }),
   ),
+  quarantine: z
+    .record(
+      z.string(),
+      z.object({
+        strikes: z.number().int().nonnegative(),
+        notBefore: z.number(),
+        maxGroup: z.number().int().positive().optional(),
+      }),
+    )
+    .default({}),
 });
 
 export function emptyState(chainId: number, coordinator: Address): RelayerState {
-  return { version: 1, chainId, coordinator, lastScannedBlock: -1n, pending: new Map(), inflight: new Map() };
+  return {
+    version: 1,
+    chainId,
+    coordinator,
+    lastScannedBlock: -1n,
+    pending: new Map(),
+    inflight: new Map(),
+    quarantine: new Map(),
+  };
 }
 
 export function serializeState(s: RelayerState): string {
@@ -68,10 +99,11 @@ export function serializeState(s: RelayerState): string {
         ]),
       ),
       inflight: Object.fromEntries(
-        [...s.inflight].map(([round, t]) => [
-          round.toString(),
+        [...s.inflight.values()].map((t) => [
+          t.txHash,
           {
             txHash: t.txHash,
+            round: t.round.toString(),
             requestIds: t.requestIds.map(String),
             sentAt: t.sentAt,
             ...(t.nonce === undefined ? {} : { nonce: t.nonce }),
@@ -79,6 +111,16 @@ export function serializeState(s: RelayerState): string {
             ...(t.maxPriorityFeePerGas === undefined
               ? {}
               : { maxPriorityFeePerGas: t.maxPriorityFeePerGas.toString() }),
+          },
+        ]),
+      ),
+      quarantine: Object.fromEntries(
+        [...s.quarantine].map(([id, q]) => [
+          id.toString(),
+          {
+            strikes: q.strikes,
+            notBefore: q.notBefore,
+            ...(q.maxGroup === undefined ? {} : { maxGroup: q.maxGroup }),
           },
         ]),
       ),
@@ -97,7 +139,21 @@ export function parseState(json: string): RelayerState {
     lastScannedBlock: f.lastScannedBlock,
     pending: new Map(Object.entries(f.pending).map(([id, p]) => [BigInt(id), p])),
     inflight: new Map(
-      Object.entries(f.inflight).map(([r, t]) => [BigInt(r), { ...t, txHash: t.txHash as Hash }]),
+      Object.entries(f.inflight).map(([key, t]) => {
+        const txHash = t.txHash as Hash;
+        const { round, ...rest } = t;
+        return [txHash, { ...rest, txHash, round: round ?? BigInt(key) }];
+      }),
+    ),
+    quarantine: new Map(
+      Object.entries(f.quarantine).map(([id, q]) => [
+        BigInt(id),
+        {
+          strikes: q.strikes,
+          notBefore: q.notBefore,
+          ...(q.maxGroup === undefined ? {} : { maxGroup: q.maxGroup }),
+        },
+      ]),
     ),
   };
 }
