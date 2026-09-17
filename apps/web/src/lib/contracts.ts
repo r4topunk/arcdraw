@@ -23,7 +23,10 @@ export const usdcAbi = [
 export const REQUEST_STATUS = ["None", "Pending", "Refunded", "Fulfilled"] as const;
 export type RequestStatus = (typeof REQUEST_STATUS)[number];
 
-export const SALE_PHASE = ["None", "Open", "Drawing", "Drawn", "Finalized"] as const;
+export const SALE_PHASE = ["None", "Open", "Drawing", "Drawn", "Finalized", "Cancelled"] as const;
+
+/** FairAllocation.DRAW_TIMEOUT: an unfulfilled draw can be cancelled this long after its drand round. */
+export const DRAW_TIMEOUT_S = 7 * 24 * 3600;
 export type SalePhase = (typeof SALE_PHASE)[number];
 
 export const MAX_CALLBACK_GAS_LIMIT = 500_000;

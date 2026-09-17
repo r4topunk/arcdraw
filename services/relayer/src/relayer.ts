@@ -8,10 +8,18 @@ import {
   InvalidBeaconError,
   roundTime,
 } from "@arcdraw/sdk";
-import { type Account, type Address, formatUnits, type Hash, type PublicClient, parseEventLogs } from "viem";
+import {
+  type Account,
+  type Address,
+  formatUnits,
+  type Hash,
+  type PublicClient,
+  parseEventLogs,
+  WaitForTransactionReceiptTimeoutError,
+} from "viem";
 import type { Logger } from "./logger.js";
 import { withRetry } from "./retry.js";
-import { emptyState, type RelayerState, type StateStore } from "./state.js";
+import { emptyState, type InflightTx, type RelayerState, type StateStore } from "./state.js";
 
 export type RelayerOptions = {
   client: ArcDrawClient;
@@ -29,6 +37,10 @@ export type RelayerOptions = {
   maxBatch?: number;
   gasBufferPct?: number;
   receiptTimeoutMs?: number;
+  /** Stop starting new batches once a tick has run this long; the rest waits for the next tick. Default 30s. */
+  maxTickMs?: number;
+  /** Fee bump (percent) when replacing a stuck tx with the same nonce. Default 25. */
+  replaceBumpPct?: number;
   scanChunk?: bigint;
   /** Retry tuning (tests shorten these). */
   retry?: { attempts?: number; baseDelayMs?: number; maxDelayMs?: number };
@@ -170,7 +182,15 @@ export class Relayer {
         },
         signal,
       );
-      for (const r of c.requested) state.pending.set(r.requestId, { round: r.round, bounty: r.bounty });
+      const minBounty = this.o.minBounty ?? 0n;
+      const belowFloor: bigint[] = [];
+      for (const r of c.requested) {
+        // A bounty never increases after the request (a refund only lowers it to 0), so a request below the floor
+        // stays below it: do not track it at all.
+        if (r.bounty < minBounty) belowFloor.push(r.requestId);
+        else state.pending.set(r.requestId, { round: r.round, bounty: r.bounty });
+      }
+      if (belowFloor.length) log.info("skip_below_floor", { requestIds: belowFloor, minBounty });
       for (const f of c.fulfilled) state.pending.delete(f.requestId);
       state.lastScannedBlock = c.toBlock;
       await this.persist();
@@ -194,16 +214,47 @@ export class Relayer {
       ids.push(id);
       byRound.set(p.round, ids);
     }
-    const rounds = [...byRound.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    // Inflight records for rounds with nothing left to do (settled by the scan): forget them once their nonce is used.
+    const orphaned = [...state.inflight.entries()].filter(([round]) => !byRound.has(round));
+    if (orphaned.length > 0) {
+      const latestNonce = await this.rpc(log, "getTransactionCount", () =>
+        publicClient.getTransactionCount({ address: this.accountAddress, blockTag: "latest" }),
+      );
+      for (const [round, t] of orphaned) {
+        const receipt = await publicClient.getTransactionReceipt({ hash: t.txHash }).catch(() => undefined);
+        if (receipt || (t.nonce !== undefined && latestNonce > t.nonce)) {
+          state.inflight.delete(round);
+          log.info("inflight_settled", { round, txHash: t.txHash, mined: Boolean(receipt) });
+        }
+      }
+      await this.persist();
+    }
+
+    // Best-paying rounds first (bounty as recorded at request time), then oldest round.
+    const roundBounty = (round: bigint) =>
+      (byRound.get(round) ?? []).reduce((sum, id) => sum + (state.pending.get(id)?.bounty ?? 0n), 0n);
+    const rounds = [...byRound.keys()].sort((a, b) => {
+      const ba = roundBounty(a);
+      const bb = roundBounty(b);
+      if (ba !== bb) return ba > bb ? -1 : 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
     result.due = [...byRound.values()].reduce((n, ids) => n + ids.length, 0);
 
-    // 3. fulfill per round
+    // 3. fulfill per round, within the tick time budget
+    const maxTickMs = this.o.maxTickMs ?? 30_000;
+    let budgetExhausted = false;
     for (const round of rounds) {
-      if (signal?.aborted) break;
+      if (signal?.aborted || budgetExhausted) break;
       const ids = (byRound.get(round) ?? []).sort((a, b) => (a < b ? -1 : 1));
       const maxBatch = this.o.maxBatch ?? 20;
       for (let i = 0; i < ids.length; i += maxBatch) {
         if (signal?.aborted) break;
+        if (this.now() - started > maxTickMs) {
+          budgetExhausted = true;
+          log.warn("tick_budget_exhausted", { maxTickMs, deferredRound: round });
+          break;
+        }
         await this.processRound(round, ids.slice(i, i + maxBatch), log.child({ round }), result, signal);
       }
     }
@@ -240,6 +291,8 @@ export class Relayer {
     };
 
     // a. a batch for this round already sent (maybe by a previous process): settle it first
+    let replace: InflightTx | undefined;
+    let replaceGasFloor = 0n;
     const inflight = state.inflight.get(round);
     if (inflight) {
       const receipt = await publicClient
@@ -256,9 +309,38 @@ export class Relayer {
       } else if (this.now() - inflight.sentAt < (this.o.receiptTimeoutMs ?? 60_000)) {
         return skip("inflight", "debug", { txHash: inflight.txHash });
       } else {
-        log.warn("inflight_dropped", { txHash: inflight.txHash, requestIds: inflight.requestIds });
-        state.inflight.delete(round);
-        await this.persist();
+        // Timed out without a receipt. Never blindly send a second tx with a fresh nonce: if the first one is
+        // still in the mempool, both could land and the relayer would pay gas twice.
+        const latestNonce =
+          inflight.nonce === undefined
+            ? undefined
+            : await this.rpc(log, "getTransactionCount", () =>
+                publicClient.getTransactionCount({ address: this.accountAddress, blockTag: "latest" }),
+              );
+        const stillKnown =
+          latestNonce !== undefined && inflight.nonce !== undefined && latestNonce > inflight.nonce
+            ? undefined // nonce already used by another tx (e.g. an earlier replacement): this hash can never land
+            : await publicClient.getTransaction({ hash: inflight.txHash }).catch(() => undefined);
+        if (stillKnown && inflight.nonce !== undefined) {
+          log.warn("inflight_replacing", { txHash: inflight.txHash, nonce: inflight.nonce });
+          replace = inflight;
+          // Estimates may run against pending state that already includes the stuck tx (round verified, ids
+          // settled) and come out too low; never go below the gas limit of the tx being replaced.
+          replaceGasFloor = stillKnown.gas;
+        } else if (stillKnown) {
+          return skip("inflight", "warn", {
+            txHash: inflight.txHash,
+            note: "pending in mempool, nonce unknown",
+          });
+        } else {
+          log.warn("inflight_dropped", {
+            txHash: inflight.txHash,
+            requestIds: inflight.requestIds,
+            latestNonce,
+          });
+          state.inflight.delete(round);
+          await this.persist();
+        }
       }
     }
 
@@ -273,12 +355,24 @@ export class Relayer {
         continue;
       }
       const bounty = r.status === "pending" ? r.bounty : 0n;
-      if (bounty < (this.o.minBounty ?? 0n)) continue;
+      if (bounty < (this.o.minBounty ?? 0n)) {
+        // Refunded (or below the floor): the bounty can only go down, so stop tracking it.
+        state.pending.delete(id);
+        log.info("skip_below_floor", { requestId: id, status: r.status, bounty });
+        continue;
+      }
       ids.push(id);
       if (r.callbackGasLimit > 0) withCallback.add(id);
     }
     await this.persist();
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      if (replace) {
+        // Everything got settled elsewhere; the stuck tx would now only skip. Leave it to expire in the mempool.
+        state.inflight.delete(round);
+        await this.persist();
+      }
+      return;
+    }
     log = log.child({ requestIds: ids });
 
     // c. beacon (skipped when the round is already verified onchain)
@@ -346,14 +440,36 @@ export class Relayer {
       return;
     }
 
-    // f. send, record inflight before waiting, then settle
-    const gasLimit = gas + (gas * BigInt(this.o.gasBufferPct ?? 20)) / 100n;
+    // f. send (or replace a stuck tx with the same nonce and bumped fees), record inflight, then settle
+    const buffered = gas + (gas * BigInt(this.o.gasBufferPct ?? 20)) / 100n;
+    const gasLimit = buffered > replaceGasFloor ? buffered : replaceGasFloor;
+    let replacement: { nonce: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | undefined;
+    if (replace?.nonce !== undefined) {
+      const bump = BigInt(100 + (this.o.replaceBumpPct ?? 25));
+      const prevMax = replace.maxFeePerGas ?? gasPrice;
+      const prevTip = replace.maxPriorityFeePerGas ?? 0n;
+      const base = gasPrice > prevMax ? gasPrice : prevMax;
+      replacement = {
+        nonce: replace.nonce,
+        maxFeePerGas: (base * bump) / 100n,
+        // A zero tip bumps to 1 wei so the node accepts it as a replacement.
+        maxPriorityFeePerGas: prevTip === 0n ? 1n : (prevTip * bump) / 100n,
+      };
+      if (this.o.maxGasPrice !== undefined && replacement.maxFeePerGas > this.o.maxGasPrice) {
+        return skip("replacement_gas_price_too_high", "warn", {
+          txHash: replace.txHash,
+          maxFeePerGas: replacement.maxFeePerGas,
+          maxGasPrice: this.o.maxGasPrice,
+        });
+      }
+    }
     let hash: Hash;
     try {
       hash = await client.fulfillBatch(round, ids, {
         gas: gasLimit,
         account: this.o.account,
         ...(beacon ? { beacon } : {}),
+        ...(replacement ?? {}),
       });
     } catch (err) {
       if (err instanceof ContractRevertError) {
@@ -362,18 +478,43 @@ export class Relayer {
           err,
         });
       }
+      // e.g. "nonce too low": the stuck tx landed meanwhile. Keep the inflight record; the next tick confirms it.
+      if (replace) return skip("replacement_failed", "warn", { txHash: replace.txHash, err });
       throw err;
     }
     this.metrics.txSent++;
     result.sent.push(hash);
-    state.inflight.set(round, { txHash: hash, requestIds: ids, sentAt: this.now() });
-    await this.persist();
-    log.info("tx_sent", { txHash: hash, gasLimit, estCostUsdc: costUsdc, batchSize: ids.length });
-
-    const receipt = await publicClient.waitForTransactionReceipt({
-      hash,
-      timeout: this.o.receiptTimeoutMs ?? 60_000,
+    const sentTx = await publicClient.getTransaction({ hash }).catch(() => undefined);
+    state.inflight.set(round, {
+      txHash: hash,
+      requestIds: ids,
+      sentAt: this.now(),
+      nonce: sentTx?.nonce ?? replacement?.nonce,
+      maxFeePerGas: sentTx?.maxFeePerGas ?? sentTx?.gasPrice ?? replacement?.maxFeePerGas,
+      maxPriorityFeePerGas: sentTx?.maxPriorityFeePerGas ?? replacement?.maxPriorityFeePerGas,
     });
+    await this.persist();
+    log.info(replace ? "tx_replaced" : "tx_sent", {
+      txHash: hash,
+      ...(replace ? { replacedTxHash: replace.txHash, nonce: replacement?.nonce } : {}),
+      gasLimit,
+      estCostUsdc: costUsdc,
+      batchSize: ids.length,
+    });
+
+    let receipt: Awaited<ReturnType<PublicClient["waitForTransactionReceipt"]>>;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        timeout: this.o.receiptTimeoutMs ?? 60_000,
+      });
+    } catch (err) {
+      if (err instanceof WaitForTransactionReceiptTimeoutError) {
+        // Slow chain, not a failed tick: keep the inflight record; the next ticks confirm, replace or drop it.
+        return skip("receipt_timeout", "warn", { txHash: hash });
+      }
+      throw err;
+    }
     state.inflight.delete(round);
     if (receipt.status !== "success") {
       this.metrics.txReverted++;

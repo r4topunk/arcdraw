@@ -23,7 +23,7 @@ ArcDraw gives an Arc contract a random `bytes32` that nobody could know when the
 Add the contracts to your Foundry project and inherit `ArcDrawConsumer`:
 
 ```bash
-forge install <arcdraw-repo>
+forge install [REPO_OWNER]/arcdraw
 # remappings.txt
 arcdraw/=lib/arcdraw/contracts/src/
 ```

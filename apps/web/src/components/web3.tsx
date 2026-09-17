@@ -72,7 +72,7 @@ export function NotDeployed({ what = "ArcDraw" }: { what?: string }) {
       <h2 className="text-display mt-2 text-2xl font-semibold">{what} is not live on Arc mainnet yet</h2>
       <p className="mt-3 max-w-prose text-muted-foreground">
         The contracts are built and tested, but <code className="font-mono text-sm">deployments/arc-mainnet.json</code> has no
-        addresses yet. Once the owner deploys, this page connects automatically. Meanwhile you can read the{" "}
+        addresses yet. Once the contracts are deployed and this site is rebuilt, this page connects to them. Meanwhile you can read the{" "}
         <Link className="text-signal-ink underline underline-offset-4" href="/docs/integration/">integration guide</Link> or the{" "}
         <a className="text-signal-ink underline underline-offset-4" href={repoFile("deployments/arc-mainnet.json")} target="_blank" rel="noreferrer">
           deployment file

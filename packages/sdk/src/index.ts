@@ -11,6 +11,7 @@ export {
   createArcDraw,
   type FulfilledEvent,
   type LogChunk,
+  type ReplacementOverrides,
   type RequestedEvent,
   type RequestOptions,
   type RequestStatus,

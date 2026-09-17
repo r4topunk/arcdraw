@@ -23,7 +23,8 @@ contract FairAllocation is ArcDrawConsumer {
         Open,
         Drawing,
         Drawn,
-        Finalized
+        Finalized,
+        Cancelled // draw never delivered within DRAW_TIMEOUT: every subscriber is refunded
     }
 
     struct Sale {
@@ -42,6 +43,8 @@ contract FairAllocation is ArcDrawConsumer {
     uint32 public constant MAX_PARTICIPANTS = 1000;
     /// @notice Gas forwarded to the callback (it only stores the seed).
     uint32 public constant CALLBACK_GAS = 60_000;
+    /// @notice Grace period after the pinned drand round before a never-fulfilled draw can be cancelled.
+    uint64 public constant DRAW_TIMEOUT = 7 days;
 
     IERC20Minimal public immutable usdc;
 
@@ -56,6 +59,10 @@ contract FairAllocation is ArcDrawConsumer {
     /// @dev requestId => saleId + 1.
     mapping(uint256 requestId => uint256) internal _saleOfRequest;
     mapping(uint256 saleId => bool) public bountyReclaimed;
+    /// @notice USDC credited to the sale treasury at finalize, pulled with `withdrawTreasury`.
+    mapping(uint256 saleId => uint256) public treasuryOwed;
+    /// @notice Unused bounty escrow credited to the creator at finalize, pulled with `withdrawCreatorBounty`.
+    mapping(uint256 saleId => uint96) public creatorOwed;
 
     event SaleCreated(
         uint256 indexed saleId,
@@ -71,6 +78,8 @@ contract FairAllocation is ArcDrawConsumer {
     event Finalized(uint256 indexed saleId, uint32 winners, uint256 raised);
     event Refunded(uint256 indexed saleId, address indexed account, uint96 amount);
     event BountyReclaimed(uint256 indexed saleId, address indexed creator, uint96 amount);
+    event TreasuryWithdrawn(uint256 indexed saleId, address indexed treasury, uint256 amount);
+    event DrawCancelled(uint256 indexed saleId, uint256 indexed requestId);
 
     error InvalidSaleParams();
     error WrongPhase(uint256 saleId, Phase phase);
@@ -81,6 +90,9 @@ contract FairAllocation is ArcDrawConsumer {
     error NotOversubscribed(uint256 saleId);
     error NotEligibleForRefund(uint256 saleId, address account);
     error BountyNotReclaimable(uint256 saleId);
+    error NothingOwed(uint256 saleId);
+    error RequestNotFulfilled(uint256 saleId, uint256 requestId);
+    error DrawNotTimedOut(uint256 saleId, uint64 cancellableAt);
 
     constructor(IArcDrawCoordinator coordinator_) ArcDrawConsumer(coordinator_) {
         usdc = IERC20Minimal(coordinator_.USDC());
@@ -149,7 +161,9 @@ contract FairAllocation is ArcDrawConsumer {
     }
 
     /// @notice Settle a sale. Permissionless. After the deadline with N <= K every subscriber wins and no
-    ///         randomness is needed; otherwise requires the drawn seed. Pays the treasury winners x price.
+    ///         randomness is needed; otherwise requires the drawn seed. Credits the treasury winners x price.
+    /// @dev Never transfers: payouts are pulled separately, so a blocklisted treasury or creator can never
+    ///      block finalization (and with it every loser's refund).
     function finalize(uint256 saleId) external {
         Sale storage sale = _sales[saleId];
         Phase phase = sale.phase;
@@ -162,13 +176,12 @@ contract FairAllocation is ArcDrawConsumer {
             // casting to uint32 is safe because n <= MAX_PARTICIPANTS
             // forge-lint: disable-next-line(unsafe-typecast)
             winners = uint32(n);
-            // No draw happened: return the unused bounty escrow to the creator.
+            // No draw happened: credit the unused bounty escrow to the creator.
             uint96 bounty = sale.bounty;
             if (bounty > 0) {
                 sale.bounty = 0;
                 bountyReclaimed[saleId] = true;
-                usdc.safeTransfer(sale.creator, bounty);
-                emit BountyReclaimed(saleId, sale.creator, bounty);
+                creatorOwed[saleId] = bounty;
             }
         } else if (phase == Phase.Drawn) {
             winners = sale.slots;
@@ -179,18 +192,69 @@ contract FairAllocation is ArcDrawConsumer {
 
         sale.phase = Phase.Finalized;
         uint256 raised = uint256(winners) * sale.pricePerSlot;
-        if (raised > 0) usdc.safeTransfer(sale.treasury, raised);
+        treasuryOwed[saleId] = raised;
         emit Finalized(saleId, winners, raised);
     }
 
-    /// @notice Losers pull back their full subscription after finalize.
+    /// @notice Pay the finalized proceeds to the sale treasury. Permissionless; the recipient is fixed.
+    function withdrawTreasury(uint256 saleId) external {
+        uint256 amount = treasuryOwed[saleId];
+        if (amount == 0) revert NothingOwed(saleId);
+        treasuryOwed[saleId] = 0;
+        address treasury = _sales[saleId].treasury;
+        usdc.safeTransfer(treasury, amount);
+        emit TreasuryWithdrawn(saleId, treasury, amount);
+    }
+
+    /// @notice Return the unused bounty escrow of an undrawn sale to its creator. Permissionless.
+    function withdrawCreatorBounty(uint256 saleId) external {
+        uint96 amount = creatorOwed[saleId];
+        if (amount == 0) revert NothingOwed(saleId);
+        creatorOwed[saleId] = 0;
+        address creator = _sales[saleId].creator;
+        usdc.safeTransfer(creator, amount);
+        emit BountyReclaimed(saleId, creator, amount);
+    }
+
+    /// @notice Recover a draw whose ArcDraw callback did not land (for example it ran out of gas): copy the
+    ///         randomness the coordinator already stored. Permissionless; the outcome is identical to the
+    ///         callback's, so it cannot be ground.
+    function syncSeed(uint256 saleId) external {
+        Sale storage sale = _sales[saleId];
+        if (sale.phase != Phase.Drawing) revert WrongPhase(saleId, sale.phase);
+        uint256 requestId = sale.requestId;
+        IArcDrawCoordinator.Request memory r = coordinator.getRequest(requestId);
+        if (r.status != IArcDrawCoordinator.Status.Fulfilled) revert RequestNotFulfilled(saleId, requestId);
+        sale.seed = r.randomness;
+        sale.phase = Phase.Drawn;
+        emit SeedReceived(saleId, requestId, r.randomness);
+    }
+
+    /// @notice Escape hatch: if the draw is still unfulfilled DRAW_TIMEOUT after its drand round was due, cancel
+    ///         the sale so every subscriber can pull a full refund. Permissionless.
+    /// @dev Anyone can fulfill with drand's public signature during those 7 days, so a single party cannot force
+    ///      a cancellation over an outcome others want delivered.
+    function cancelStuckDraw(uint256 saleId) external {
+        Sale storage sale = _sales[saleId];
+        if (sale.phase != Phase.Drawing) revert WrongPhase(saleId, sale.phase);
+        uint256 requestId = sale.requestId;
+        IArcDrawCoordinator.Request memory r = coordinator.getRequest(requestId);
+        if (r.status == IArcDrawCoordinator.Status.Fulfilled) revert WrongPhase(saleId, sale.phase); // use syncSeed
+        uint64 cancellableAt = coordinator.roundTimestamp(r.round) + DRAW_TIMEOUT;
+        if (block.timestamp < cancellableAt) revert DrawNotTimedOut(saleId, cancellableAt);
+        sale.phase = Phase.Cancelled;
+        emit DrawCancelled(saleId, requestId);
+    }
+
+    /// @notice Losers pull back their full subscription after finalize; in a cancelled sale everyone does.
     function claimRefund(uint256 saleId) external {
         Sale storage sale = _sales[saleId];
-        if (sale.phase != Phase.Finalized) revert WrongPhase(saleId, sale.phase);
+        Phase phase = sale.phase;
+        if (phase != Phase.Finalized && phase != Phase.Cancelled) revert WrongPhase(saleId, phase);
         uint256 idxPlusOne = _indexPlusOne[saleId][msg.sender];
         if (idxPlusOne == 0) revert NotEligibleForRefund(saleId, msg.sender);
         uint256 idx = idxPlusOne - 1;
-        if (_isWinnerIdx(saleId, sale, idx) || _bit(_refundedBits[saleId], idx)) {
+        if ((phase == Phase.Finalized && _isWinnerIdx(saleId, sale, idx)) || _bit(_refundedBits[saleId], idx)) {
             revert NotEligibleForRefund(saleId, msg.sender);
         }
         _refundedBits[saleId][idx >> 8] |= uint256(1) << (idx & 0xff);
@@ -201,15 +265,14 @@ contract FairAllocation is ArcDrawConsumer {
 
     /// @notice If ArcDraw refunded the draw's bounty (request expired before fulfillment), forward it to the
     ///         sale creator. The draw itself stays fulfillable, so this never affects the outcome.
-    /// @dev Must be called while the request is still `Refunded`. If a late fulfillment lands first, the
-    ///      refunded bounty stays in this contract (known demo limitation, documented in docs/SPEC.md).
+    /// @dev Keyed on `coordinator.refundedBounty`, which survives a late fulfillment, so the call can be made
+    ///      before or after the draw completes.
     function reclaimBounty(uint256 saleId) external {
         Sale storage sale = _sales[saleId];
-        uint96 bounty = sale.bounty;
-        if (
-            sale.requestId == 0 || bounty == 0 || bountyReclaimed[saleId]
-                || coordinator.getRequest(sale.requestId).status != IArcDrawCoordinator.Status.Refunded
-        ) revert BountyNotReclaimable(saleId);
+        uint256 requestId = sale.requestId;
+        if (requestId == 0 || bountyReclaimed[saleId]) revert BountyNotReclaimable(saleId);
+        uint96 bounty = coordinator.refundedBounty(requestId);
+        if (bounty == 0) revert BountyNotReclaimable(saleId);
         bountyReclaimed[saleId] = true;
         usdc.safeTransfer(sale.creator, bounty);
         emit BountyReclaimed(saleId, sale.creator, bounty);

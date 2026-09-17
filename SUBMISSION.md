@@ -26,7 +26,7 @@ What Arc is used for:
 - sub-second deterministic finality, so randomness arrives about 3 seconds after the round with no reorg risk.
 
 The repo ships:
-- the coordinator and a consumer base contract, with 113 Foundry tests including real drand vectors and a read-only mainnet fork;
+- the coordinator and a consumer base contract, with 129 Foundry tests (120 unit/fuzz/invariant tests with real drand vectors, plus 9 read-only Arc mainnet fork tests);
 - a TypeScript SDK (viem) that verifies beacons offchain;
 - a permissionless relayer with JSON logs and a health endpoint;
 - a website with a live beacon verified in the browser, a request inspector and a finance demo. **FairAllocation** runs a provably fair lottery for an oversubscribed USDC sale and refunds losers in full.
@@ -59,7 +59,7 @@ Experimental and unaudited, MIT licensed.
 |---|---|---|
 | 0:00–0:15 | Landing hero, then the live beacon card ticking | "Arc has no randomness: PREVRANDAO is zero and there's no VRF. ArcDraw fixes that with drand, the League of Entropy beacon, verified onchain on Arc. This card fetches the latest round and checks its BLS signature right in the browser." |
 | 0:15–0:35 | "How it works" diagram, then the coordinator on explorer.arc.io with its verified source | "A contract requests randomness and gets pinned to a drand round a few seconds in the future. When that round is out, anyone can submit the signature. The coordinator checks it with Arc's BLS12-381 precompiles. No oracle key, no owner, no upgrades." |
-| 0:35–1:00 | `/app/`: connect wallet, request with a 0.01 USDC bounty, sign, the request appears as Pending then Fulfilled within seconds; relayer JSON log in a terminal split | "I request with a one-cent USDC bounty. My relayer sees the request, waits for the round, verifies the beacon offchain and fulfills. It took about three seconds, and the bounty and the gas were both paid in USDC." |
+| 0:35–1:00 | `/app/`: connect wallet, request with a 0.01 USDC bounty, sign, the request appears as Pending then Fulfilled within seconds; relayer JSON log in a terminal split | "I request with a one-cent USDC bounty. My relayer sees the request, waits for the round, verifies the beacon offchain and fulfills. It arrived a few seconds later, and the bounty and the gas were both paid in USDC." |
 | 1:00–1:20 | `/r/?id=N` inspector: 3 green checks, tx links | "Anyone can audit any request. The signature is valid for that round, the stored value matches, and the delivered randomness can be recomputed. Every tx links to the Arc explorer." |
 | 1:20–1:45 | `/allocation/`: sale with 3 slots and 5 subscribers, draw, winners marked, a loser claims a refund | "The demo is finance, not a casino. An oversubscribed USDC sale: five subscribers for three slots, each paying with one permit signature. The draw uses ArcDraw, winners are picked onchain from the seed, and losers get their full USDC back." |
 | 1:45–2:00 | Gas table, then the README credits and the repo URL | "A fresh round costs about 0.006 USDC, and a reused round about a tenth of a cent. It's open source under MIT, built on drand and randa-mu's BLS library. Experimental, live on Arc mainnet today." |

@@ -4,7 +4,15 @@ import type { Address, Hash } from "viem";
 import { z } from "zod";
 
 export type PendingRequest = { round: bigint; bounty: bigint };
-export type InflightTx = { txHash: Hash; requestIds: bigint[]; sentAt: number };
+export type InflightTx = {
+  txHash: Hash;
+  requestIds: bigint[];
+  sentAt: number;
+  /** Sender nonce and fees, read back after sending; used to replace (not duplicate) a stuck tx. */
+  nonce?: number | undefined;
+  maxFeePerGas?: bigint | undefined;
+  maxPriorityFeePerGas?: bigint | undefined;
+};
 
 /** Everything the relayer persists. No database: one JSON file, written atomically. */
 export type RelayerState = {
@@ -35,6 +43,9 @@ const fileSchema = z.object({
       txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
       requestIds: z.array(big),
       sentAt: z.number(),
+      nonce: z.number().int().nonnegative().optional(),
+      maxFeePerGas: big.optional(),
+      maxPriorityFeePerGas: big.optional(),
     }),
   ),
 });
@@ -59,7 +70,16 @@ export function serializeState(s: RelayerState): string {
       inflight: Object.fromEntries(
         [...s.inflight].map(([round, t]) => [
           round.toString(),
-          { txHash: t.txHash, requestIds: t.requestIds.map(String), sentAt: t.sentAt },
+          {
+            txHash: t.txHash,
+            requestIds: t.requestIds.map(String),
+            sentAt: t.sentAt,
+            ...(t.nonce === undefined ? {} : { nonce: t.nonce }),
+            ...(t.maxFeePerGas === undefined ? {} : { maxFeePerGas: t.maxFeePerGas.toString() }),
+            ...(t.maxPriorityFeePerGas === undefined
+              ? {}
+              : { maxPriorityFeePerGas: t.maxPriorityFeePerGas.toString() }),
+          },
         ]),
       ),
     },

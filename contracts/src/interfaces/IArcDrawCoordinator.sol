@@ -110,6 +110,9 @@ interface IArcDrawCoordinator {
     function requestCount() external view returns (uint256);
     function getRequest(uint256 requestId) external view returns (Request memory);
     function roundRandomness(uint64 round) external view returns (bytes32); // 0 if not verified
+    /// @notice Bounty returned to the requester by `refund` (0 if never refunded). Survives a later
+    ///         fulfillment, so consumers can account for refunded bounties without racing late fulfillers.
+    function refundedBounty(uint256 requestId) external view returns (uint96);
 
     /// @notice Latest round whose beacon is due at block.timestamp: floor((t - GENESIS_TIME) / PERIOD) + 1.
     function currentRound() external view returns (uint64);

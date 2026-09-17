@@ -90,7 +90,12 @@ contract FairAllocationTest is BaseTest {
         vm.expectEmit(address(fa));
         emit Finalized(saleId, 3, 3 * uint256(PRICE));
         fa.finalize(saleId);
+        assertEq(usdc.balanceOf(treasury), 0); // pull-based
+        assertEq(fa.treasuryOwed(saleId), 3 * uint256(PRICE));
+        fa.withdrawTreasury(saleId);
         assertEq(usdc.balanceOf(treasury), 3 * PRICE);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.NothingOwed.selector, saleId));
+        fa.withdrawTreasury(saleId);
 
         uint256 winners;
         for (uint256 i; i < 5; i++) {
@@ -138,8 +143,13 @@ contract FairAllocationTest is BaseTest {
         vm.expectRevert(abi.encodeWithSelector(FairAllocation.NotOversubscribed.selector, saleId));
         fa.draw(saleId);
         fa.finalize(saleId);
+        fa.withdrawTreasury(saleId);
         assertEq(usdc.balanceOf(treasury), 3 * PRICE);
+        assertEq(fa.creatorOwed(saleId), BOUNTY);
+        fa.withdrawCreatorBounty(saleId);
         assertEq(usdc.balanceOf(creator), 1_000e6); // bounty escrow returned
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.NothingOwed.selector, saleId));
+        fa.withdrawCreatorBounty(saleId);
         assertTrue(fa.bountyReclaimed(saleId));
         for (uint256 i; i < 3; i++) {
             assertTrue(fa.isWinner(saleId, users[i]));
@@ -156,6 +166,7 @@ contract FairAllocationTest is BaseTest {
         _subscribeMany(saleId, 3);
         vm.warp(block.timestamp + 1 hours);
         fa.finalize(saleId);
+        fa.withdrawTreasury(saleId);
         assertEq(usdc.balanceOf(treasury), 3 * PRICE);
     }
 
@@ -164,6 +175,8 @@ contract FairAllocationTest is BaseTest {
         vm.warp(block.timestamp + 1 hours);
         fa.finalize(saleId);
         assertEq(uint8(fa.getSale(saleId).phase), uint8(FairAllocation.Phase.Finalized));
+        assertEq(fa.treasuryOwed(saleId), 0);
+        fa.withdrawCreatorBounty(saleId);
         assertEq(usdc.balanceOf(creator), 1_000e6);
     }
 
@@ -403,6 +416,147 @@ contract FairAllocationTest is BaseTest {
         fa.reclaimBounty(saleId);
     }
 
+    // ---------------------------------------------------------------- blocklisted payees (pull payments)
+
+    function test_blocklistedTreasury_doesNotBlockRefunds() public {
+        uint256 saleId = _create(1, 0);
+        address[] memory users = _subscribeMany(saleId, 3);
+        _drawAndFulfill(saleId);
+        usdc.blacklist(treasury, true);
+        fa.finalize(saleId); // does not revert
+        assertEq(uint8(fa.getSale(saleId).phase), uint8(FairAllocation.Phase.Finalized));
+        vm.expectRevert("Blacklistable: account is blacklisted");
+        fa.withdrawTreasury(saleId);
+        for (uint256 i; i < 3; i++) {
+            if (fa.isWinner(saleId, users[i])) continue;
+            vm.prank(users[i]);
+            fa.claimRefund(saleId);
+            assertEq(usdc.balanceOf(users[i]), PRICE);
+        }
+        assertEq(fa.treasuryOwed(saleId), PRICE); // still credited, payable once unblocked
+        usdc.blacklist(treasury, false);
+        fa.withdrawTreasury(saleId);
+        assertEq(usdc.balanceOf(address(fa)), 0);
+    }
+
+    function test_blocklistedCreator_doesNotBlockFinalize() public {
+        uint256 saleId = _create(5, BOUNTY);
+        _subscribeMany(saleId, 2);
+        vm.warp(block.timestamp + 1 hours);
+        usdc.blacklist(creator, true);
+        fa.finalize(saleId);
+        fa.withdrawTreasury(saleId);
+        assertEq(usdc.balanceOf(treasury), 2 * PRICE);
+        vm.expectRevert("Blacklistable: account is blacklisted");
+        fa.withdrawCreatorBounty(saleId);
+    }
+
+    // ---------------------------------------------------------------- stuck draw recovery
+
+    function test_syncSeed_afterFailedCallback() public {
+        uint256 saleId = _create(1, 0);
+        address[] memory users = _subscribeMany(saleId, 2);
+        vm.warp(block.timestamp + 1 hours);
+        uint256 requestId = fa.draw(saleId);
+        uint64 round = coord.getRequest(requestId).round;
+        warpToRound(round);
+
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.RequestNotFulfilled.selector, saleId, requestId));
+        fa.syncSeed(saleId);
+
+        // Force the callback to fail: the consumer reverts, the coordinator still marks the request Fulfilled.
+        vm.mockCallRevert(address(fa), abi.encodeWithSelector(fa.rawFulfillRandomness.selector), "boom");
+        vm.expectEmit(address(coord));
+        emit IArcDrawCoordinator.RandomnessFulfilled(
+            requestId, round, address(this), expectedRandomness(sigOf(round), requestId), 0, false
+        );
+        coord.fulfill(requestId, sigOf(round));
+        vm.clearMockedCalls();
+        assertEq(uint8(fa.getSale(saleId).phase), uint8(FairAllocation.Phase.Drawing));
+
+        fa.syncSeed(saleId);
+        FairAllocation.Sale memory sale = fa.getSale(saleId);
+        assertEq(uint8(sale.phase), uint8(FairAllocation.Phase.Drawn));
+        assertEq(sale.seed, expectedRandomness(sigOf(round), requestId));
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.WrongPhase.selector, saleId, FairAllocation.Phase.Drawn));
+        fa.syncSeed(saleId);
+
+        fa.finalize(saleId);
+        uint256 w = (fa.isWinner(saleId, users[0]) ? 1 : 0) + (fa.isWinner(saleId, users[1]) ? 1 : 0);
+        assertEq(w, 1);
+    }
+
+    function test_cancelStuckDraw_refundsEveryone() public {
+        uint256 saleId = _create(1, BOUNTY);
+        address[] memory users = _subscribeMany(saleId, 3);
+        vm.warp(block.timestamp + 1 hours);
+        uint256 requestId = fa.draw(saleId);
+        uint64 round = coord.getRequest(requestId).round;
+        uint64 cancellableAt = coord.roundTimestamp(round) + fa.DRAW_TIMEOUT();
+
+        vm.warp(cancellableAt - 1);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.DrawNotTimedOut.selector, saleId, cancellableAt));
+        fa.cancelStuckDraw(saleId);
+
+        vm.warp(cancellableAt);
+        fa.cancelStuckDraw(saleId);
+        assertEq(uint8(fa.getSale(saleId).phase), uint8(FairAllocation.Phase.Cancelled));
+        vm.expectRevert(
+            abi.encodeWithSelector(FairAllocation.WrongPhase.selector, saleId, FairAllocation.Phase.Cancelled)
+        );
+        fa.finalize(saleId);
+
+        for (uint256 i; i < 3; i++) {
+            vm.prank(users[i]);
+            fa.claimRefund(saleId);
+            assertEq(usdc.balanceOf(users[i]), PRICE);
+            assertFalse(fa.isWinner(saleId, users[i]));
+        }
+        vm.prank(users[0]);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.NotEligibleForRefund.selector, saleId, users[0]));
+        fa.claimRefund(saleId);
+
+        // A late fulfillment is ignored by the cancelled sale; the escrowed bounty returns through the coordinator.
+        coord.refund(requestId);
+        coord.fulfill(requestId, sigOf(round));
+        assertEq(uint8(fa.getSale(saleId).phase), uint8(FairAllocation.Phase.Cancelled));
+        fa.reclaimBounty(saleId);
+        assertEq(usdc.balanceOf(creator), 1_000e6);
+        assertEq(usdc.balanceOf(address(fa)), 0);
+    }
+
+    function test_cancelStuckDraw_revert_whenFulfilled() public {
+        uint256 saleId = _create(1, 0);
+        _subscribeMany(saleId, 2);
+        (, uint64 round) = _drawAndFulfill(saleId);
+        vm.warp(coord.roundTimestamp(round) + fa.DRAW_TIMEOUT());
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.WrongPhase.selector, saleId, FairAllocation.Phase.Drawn));
+        fa.cancelStuckDraw(saleId);
+    }
+
+    function test_reclaimBounty_afterLateFulfillLandsFirst() public {
+        uint256 saleId = _create(1, BOUNTY);
+        _subscribeMany(saleId, 2);
+        vm.warp(block.timestamp + 1 hours);
+        uint256 requestId = fa.draw(saleId);
+        vm.warp(coord.expiresAt(requestId));
+        coord.refund(requestId);
+        uint64 round = coord.getRequest(requestId).round;
+        coord.fulfill(requestId, sigOf(round)); // late fulfill before anyone reclaims
+        fa.reclaimBounty(saleId);
+        assertEq(usdc.balanceOf(creator), 1_000e6);
+        fa.finalize(saleId);
+        fa.withdrawTreasury(saleId);
+    }
+
+    function test_reclaimBounty_revert_whenBountyWasPaid() public {
+        uint256 saleId = _create(1, BOUNTY);
+        _subscribeMany(saleId, 2);
+        _drawAndFulfill(saleId);
+        vm.expectRevert(abi.encodeWithSelector(FairAllocation.BountyNotReclaimable.selector, saleId));
+        fa.reclaimBounty(saleId);
+    }
+
     // ---------------------------------------------------------------- selection properties
 
     function testFuzz_winnerBitmap_exactlyKDistinctInRange(bytes32 seed, uint16 n, uint16 k) public view {
@@ -461,6 +615,8 @@ contract FairAllocationTest is BaseTest {
         vm.warp(block.timestamp + 1 hours);
         if (n > k) _drawAndFulfill(saleId);
         fa.finalize(saleId);
+        if (fa.treasuryOwed(saleId) > 0) fa.withdrawTreasury(saleId);
+        if (fa.creatorOwed(saleId) > 0) fa.withdrawCreatorBounty(saleId);
         uint256 winners;
         for (uint256 i; i < n; i++) {
             if (fa.isWinner(saleId, users[i])) {

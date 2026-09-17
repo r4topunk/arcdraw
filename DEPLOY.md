@@ -22,7 +22,7 @@ pnpm relayer # 7. [SPENDS] relayer (after .env is filled)
 
 | Check | Command | Expected |
 |---|---|---|
-| Toolchain | `forge --version && node -v && pnpm -v` | forge 1.x (Osaka), node >= 22, pnpm 11 |
+| Toolchain | `forge --version && node -v && pnpm -v && jq --version` | forge 1.x (Osaka), node >= 22, pnpm 11, jq (step 8) |
 | Submodules | `git submodule update --init --recursive` | `contracts/lib/forge-std` populated |
 | Green build | `pnpm install && pnpm run verify` | exit 0 (build, drift checks, lint, typecheck, tests) |
 | RPC reachable | `cast chain-id --rpc-url https://rpc.mainnet.arc.io` | `5042` |
@@ -73,15 +73,15 @@ Expected output of the 3a simulation, computed from the committed bytecode in a 
 
 | Contract | Expected address |
 |---|---|
-| ArcDrawCoordinator | `0x2bA3B73a27B81b5e952E5e7E504CBDC329e8F89B` |
-| FairAllocation | `0x719f2aFe0E2709ff17Cdf16065dcd35D448a8D8C` |
+| ArcDrawCoordinator | `0x7E911161D337c895279e1088f3548F109A4EC563` |
+| FairAllocation | `0x16A00a70756A1BdFF7E6ea05A2324A283d812067` |
 
 If 3a prints different addresses, the bytecode changed (a source edit or a different solc). That is fine, but use the printed addresses from here on.
 
 Post-deploy sanity checks (read-only):
 
 ```bash
-export RPC=https://rpc.mainnet.arc.io COORD=0x2bA3B73a27B81b5e952E5e7E504CBDC329e8F89B FA=0x719f2aFe0E2709ff17Cdf16065dcd35D448a8D8C
+export RPC=https://rpc.mainnet.arc.io COORD=0x7E911161D337c895279e1088f3548F109A4EC563 FA=0x16A00a70756A1BdFF7E6ea05A2324A283d812067
 cast call $COORD "USDC()(address)" --rpc-url $RPC                 # 0x3600000000000000000000000000000000000000
 cast call $COORD "currentRound()(uint64)" --rpc-url $RPC          # matches https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/latest (±1)
 cast call $FA "coordinator()(address)" --rpc-url $RPC             # == $COORD
@@ -136,7 +136,7 @@ npx serve apps/web/out     # local smoke test: /, /app/, /r/?id=1, /allocation/,
 | Install Command | `pnpm install --frozen-lockfile` |
 | Build Command | `cd ../.. && pnpm --filter "@arcdraw/web..." build` (builds the SDK first, then the site) |
 | Output Directory | `out` |
-| Env vars | `NEXT_PUBLIC_REPO_URL`, `NEXT_PUBLIC_SITE_URL`; optional `NEXT_PUBLIC_ARC_RPC_URL`, `NEXT_PUBLIC_COORDINATOR_ADDRESS`, `NEXT_PUBLIC_FAIR_ALLOCATION_ADDRESS` |
+| Env vars | `NEXT_PUBLIC_REPO_URL`, `NEXT_PUBLIC_SITE_URL`, `REQUIRE_SITE_ENV=true` (fails the build if either is missing); optional `NEXT_PUBLIC_ARC_RPC_URL`, `NEXT_PUBLIC_COORDINATOR_ADDRESS`, `NEXT_PUBLIC_FAIR_ALLOCATION_ADDRESS` |
 | Node | 22.x or newer |
 
 **Any static host** (Cloudflare Pages, Netlify, GitHub Pages, S3): run `pnpm build`, then upload `apps/web/out/`. Routes use trailing slashes (`/app/`) and query strings (`/r/?id=N`), so no rewrites are needed.
@@ -179,6 +179,10 @@ This covers PRD section 6 and SPEC section 12. Record every hash in `deployments
 ```bash
 export RPC=https://rpc.mainnet.arc.io USDC=0x3600000000000000000000000000000000000000
 export COORD=<coordinator> FA=<fairAllocation> ACCT=arcdraw-deployer
+# The request id comes from the tx receipt, not requestCount(): the coordinator is permissionless, so another
+# request (for example from the live web app) can land between your tx and a requestCount() call.
+TOPIC=$(cast keccak "RandomnessRequested(uint256,address,uint64,uint96,uint32)")
+request_id() { cast receipt "$1" --json --rpc-url $RPC | jq -r --arg t "$TOPIC" '.logs[] | select(.topics[0] == $t) | .topics[1]' | xargs cast to-dec; }
 ```
 
 ### 8a. EOA request, relayer fulfills (`requestTx`, `fulfillTx`)
@@ -186,8 +190,8 @@ export COORD=<coordinator> FA=<fairAllocation> ACCT=arcdraw-deployer
 The relayer must be running.
 
 ```bash
-cast send $COORD "requestRandomness(uint32,uint96)" 0 0 --rpc-url $RPC --account $ACCT      # -> requestTx
-ID=$(cast call $COORD "requestCount()(uint256)" --rpc-url $RPC); echo $ID
+TX=$(cast send $COORD "requestRandomness(uint32,uint96)" 0 0 --rpc-url $RPC --account $ACCT --json | jq -r .transactionHash)   # -> requestTx
+ID=$(request_id $TX); echo $TX $ID
 sleep 15
 cast call $COORD "getRequest(uint256)((address,uint64,uint32,uint8,uint96,uint64,bytes32))" $ID --rpc-url $RPC
 # status (4th field) == 3 (Fulfilled). The fulfill tx hash is in the relayer log (msg "fulfilled", txHash) or on /r/?id=$ID
@@ -207,8 +211,8 @@ cast send $COORD "requestRandomnessAtRound(uint64,uint32,uint96)" $R 0 0 --rpc-u
 ```bash
 # stop the relayer first
 cast send $USDC "approve(address,uint256)" $COORD 10000 --rpc-url $RPC --account $ACCT          # 0.01 USDC
-cast send $COORD "requestRandomness(uint32,uint96)" 0 10000 --rpc-url $RPC --account $ACCT
-ID=$(cast call $COORD "requestCount()(uint256)" --rpc-url $RPC)
+TX=$(cast send $COORD "requestRandomness(uint32,uint96)" 0 10000 --rpc-url $RPC --account $ACCT --json | jq -r .transactionHash)
+ID=$(request_id $TX); echo $TX $ID
 cast call $COORD "expiresAt(uint256)(uint64)" $ID --rpc-url $RPC       # unix time; wait until it has passed (~1h)
 cast send $COORD "refund(uint256)" $ID --rpc-url $RPC --account $ACCT                           # -> refundTx
 # restart the relayer (RELAYER_MIN_BOUNTY=0): it fulfills the refunded request   -> lateFulfillTx
@@ -228,8 +232,9 @@ Easiest from the web app at `/allocation/`, with 5 wallets (for example 5 accoun
 2. **Subscribe** from 5 different accounts. Each account signs one permit.
 3. **Draw** after the deadline. → `fairAllocationDrawTx`
 4. **Fulfill.** The relayer fulfills and the FairAllocation callback stores the seed. → `callbackTx`: the fulfill tx whose `RandomnessFulfilled` event has `callbackSuccess = true`.
-5. **Finalize.** This picks 3 winners and pays the treasury 0.3 USDC. → `fairAllocationFinalizeTx`
-6. **Claim a refund** from one of the 2 losing accounts. → `fairAllocationRefundTx`
+5. **Finalize.** This picks 3 winners and credits the treasury 0.3 USDC. → `fairAllocationFinalizeTx`
+6. **Pay treasury** (anyone): `withdrawTreasury` sends the 0.3 USDC. Payouts are pull-based so a blocklisted payee can never block refunds.
+7. **Claim a refund** from one of the 2 losing accounts. → `fairAllocationRefundTx`
 
 The minimum, if you have fewer wallets: slots 1 and 2 subscribers.
 

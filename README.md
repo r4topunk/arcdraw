@@ -173,7 +173,7 @@ Known limitations:
 
 ## Mainnet proof
 
-The owner fills this in after running [DEPLOY.md](DEPLOY.md) section 7. Each hash links to explorer.arc.io.
+The owner fills this in after running [DEPLOY.md section 8](DEPLOY.md#8-on-chain-proof-scenario-spends). Each hash links to explorer.arc.io.
 
 | Scenario | Tx |
 |---|---|

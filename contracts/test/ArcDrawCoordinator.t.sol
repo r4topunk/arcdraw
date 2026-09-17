@@ -663,6 +663,7 @@ contract ArcDrawCoordinatorTest is BaseTest {
         assertEq(usdc.balanceOf(address(c)), 5_000);
         assertEq(uint8(statusOf(id)), uint8(IArcDrawCoordinator.Status.Refunded));
         assertEq(coord.getRequest(id).bounty, 0);
+        assertEq(coord.refundedBounty(id), 5_000);
 
         vm.expectRevert(
             abi.encodeWithSelector(IArcDrawCoordinator.NotRefundable.selector, id, IArcDrawCoordinator.Status.Refunded)
@@ -676,6 +677,7 @@ contract ArcDrawCoordinatorTest is BaseTest {
         coord.fulfill(id, sigOf(round));
         assertEq(c.calls(), 1);
         assertEq(usdc.balanceOf(relayer), 0);
+        assertEq(coord.refundedBounty(id), 5_000); // survives the late fulfillment
     }
 
     function test_refund_zeroBounty() public {
@@ -684,6 +686,7 @@ contract ArcDrawCoordinatorTest is BaseTest {
         vm.warp(coord.expiresAt(id));
         coord.refund(id);
         assertEq(uint8(statusOf(id)), uint8(IArcDrawCoordinator.Status.Refunded));
+        assertEq(coord.refundedBounty(id), 0);
     }
 
     function test_refund_revert_unknownAndFulfilled() public {

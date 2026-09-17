@@ -84,6 +84,7 @@ function verifyRound(uint64 round, bytes calldata signature) external returns (b
 function fulfill(uint256 requestId, bytes calldata signature) external;
 function fulfillBatch(uint64 round, bytes calldata signature, uint256[] calldata requestIds) external;
 function refund(uint256 requestId) external;
+function refundedBounty(uint256 requestId) external view returns (uint96); // round 1 fix: survives late fulfill
 
 function getRequest(uint256 requestId) external view returns (Request memory);
 function roundRandomness(uint64 round) external view returns (bytes32);
@@ -146,7 +147,7 @@ A request for a round that is already verified is impossible, because the round 
 
 **fulfillBatch(round, sig, ids)**: verify once. For each id: if the status is not Pending/Refunded, `continue` (a racing relayer may have fulfilled it). If `r.round != round`, revert `RequestRoundMismatch`. Otherwise apply steps 3-4 (effects) to the id and add its bounty to a running sum. After the loop, pay the summed bounty in one transfer (step 5). Then run the callbacks and emit the events for the fulfilled ids in order (steps 6-7), with the gas check applied before each callback.
 
-**refund(id)**: permissionless. Require `status == Pending`, else `NotRefundable`. Require `block.timestamp >= expiresAt(id)`, else `NotExpired`. Set `status = Refunded` and `bounty = 0`, transfer the bounty to `requester` and emit `BountyRefunded`.
+**refund(id)**: permissionless. Require `status == Pending`, else `NotRefundable`. Require `block.timestamp >= expiresAt(id)`, else `NotExpired`. Set `status = Refunded` and `bounty = 0`, record `refundedBounty[id] = bounty` (kept forever, so consumers can account for the refund even after a late fulfillment), transfer the bounty to `requester` and emit `BountyRefunded`.
 
 ### 3.2 State machine
 
@@ -188,7 +189,7 @@ Scenario: a USDC allocation round (for example an RWA pre-sale or a capped vault
 
 ```solidity
 contract FairAllocation is ArcDrawConsumer {
-    enum Phase { None, Open, Drawing, Drawn, Finalized }
+    enum Phase { None, Open, Drawing, Drawn, Finalized, Cancelled }
     struct Sale {
         address creator; address treasury;
         uint96 pricePerSlot;      // USDC 6 dec
@@ -200,17 +201,23 @@ contract FairAllocation is ArcDrawConsumer {
     }
     uint32 public constant MAX_PARTICIPANTS = 1000;
     uint32 public constant CALLBACK_GAS = 60_000;
+    uint64 public constant DRAW_TIMEOUT = 7 days;
 
     function createSale(address treasury, uint96 pricePerSlot, uint32 slots, uint64 subscribeDeadline, uint96 bounty) external returns (uint256 saleId);
     function subscribe(uint256 saleId) external;                                   // transferFrom price, 1 per address
     function subscribeWithPermit(uint256 saleId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external; // EIP-2612 v"2"
     function draw(uint256 saleId) external returns (uint256 requestId);          // permissionless, after deadline, N > K
     function finalize(uint256 saleId) external;                                   // permissionless; N <= K skips randomness
-    function claimRefund(uint256 saleId) external;                                // losers only, after Finalized
+    function claimRefund(uint256 saleId) external;                                // losers after Finalized; everyone after Cancelled
+    function withdrawTreasury(uint256 saleId) external;                           // pull treasuryOwed to sale.treasury
+    function withdrawCreatorBounty(uint256 saleId) external;                      // pull creatorOwed (unused escrow) to creator
+    function syncSeed(uint256 saleId) external;                                   // Drawing + request Fulfilled: copy stored randomness
+    function cancelStuckDraw(uint256 saleId) external;                            // Drawing, unfulfilled DRAW_TIMEOUT after the round: Cancelled
     function isWinner(uint256 saleId, address account) external view returns (bool);
     function participants(uint256 saleId) external view returns (address[] memory);
     // Stage 2 additions: getSale, participantCount, hasRefunded, saleOfRequest, bountyReclaimed,
-    // reclaimBounty(saleId) (forwards a coordinator-refunded bounty to the creator), MAX_PARTICIPANTS, CALLBACK_GAS.
+    // reclaimBounty(saleId) (forwards `coordinator.refundedBounty(requestId)` to the creator), treasuryOwed, creatorOwed,
+    // MAX_PARTICIPANTS, CALLBACK_GAS, DRAW_TIMEOUT.
 
     event SaleCreated(uint256 indexed saleId, address indexed creator, address treasury, uint96 pricePerSlot, uint32 slots, uint64 subscribeDeadline);
     event Subscribed(uint256 indexed saleId, address indexed account, uint32 index);
@@ -239,9 +246,14 @@ for i in 0..K-1:
     j = i + uint256(keccak256(seed, i)) % (N - i)
     swap(idx[i], idx[j]); setBit(winnerBitmap, idx[i])
 ```
-The partial Fisher-Yates shuffle yields a uniform K-subset. Modulo bias is below 2^-240 for N <= 1000. The treasury receives `K * price` and losers pull their refunds. Measured finalize gas: N=1000, K=100 = 321,227; worst case N=1000, K=999 = 1,064,913 (see docs/GAS.md).
+The partial Fisher-Yates shuffle yields a uniform K-subset. Modulo bias is below 2^-240 for N <= 1000. The treasury is credited `K * price` (pulled with `withdrawTreasury`) and losers pull their refunds. Measured finalize gas: N=1000, K=100 = 314,708; worst case N=1000, K=999 = 1,058,331 (see docs/GAS.md).
 
-Stage 2 details: with N <= K no draw happens, every subscriber wins and the bounty escrow returns to the creator in `finalize`. The callback uses 33,994 gas with cold storage (budget 60,000). If ArcDraw refunds the draw bounty (expiry), anyone calls `reclaimBounty` to forward it to the creator; if a late fulfillment lands before that call, the refunded bounty stays in the contract (known demo limitation). A blocklisted loser cannot claim, but cannot block anyone else either.
+Stage 2 details: with N <= K no draw happens, every subscriber wins and the bounty escrow is credited to the creator in `finalize`. The callback uses 34,038 gas with cold storage (budget 60,000). If ArcDraw refunds the draw bounty (expiry), anyone calls `reclaimBounty` to forward it to the creator, before or after a late fulfillment (it reads `refundedBounty`). A blocklisted loser cannot claim, but cannot block anyone else either.
+
+Round 1 hardening (fund-safety):
+- `finalize` never transfers. It records the outcome and credits `treasuryOwed` / `creatorOwed`; `withdrawTreasury` and `withdrawCreatorBounty` are permissionless pulls to the fixed recipients. A blocklisted treasury or creator therefore cannot block finalization or any loser refund.
+- `syncSeed` recovers a sale stuck in `Drawing` when the coordinator marked the request Fulfilled but the callback failed: it copies the stored randomness, so the outcome is identical and cannot be ground.
+- `cancelStuckDraw` is the liveness escape hatch: if the request is still not Fulfilled `DRAW_TIMEOUT` (7 days) after its round timestamp, the sale becomes `Cancelled` and every subscriber pulls a full refund. Anyone can fulfill with drand's public signature during those 7 days, so a single party cannot force a cancellation.
 
 ## 6. SDK (`@arcdraw/sdk`)
 
@@ -349,7 +361,7 @@ Full table and method in `docs/GAS.md` (regenerate with `node contracts/script/g
 | `fulfill` verified round | 75,845 | 0.0015 |
 | `fulfillBatch` fresh round, 5 ids | 446,892 | 0.0089 |
 | `refund` | 49,659 | 0.0010 |
-| FairAllocation `finalize` N=1000, K=100 | 321,227 | 0.0064 |
+| FairAllocation `finalize` N=1000, K=100 | 314,708 | 0.0063 |
 | Deploy both contracts (CREATE2) | ~6.95M | ~0.139 |
 
 Fresh-round `fulfill` is 313k, above the PRD's "<= 300k (+ callback)" target by ~4%: BLS verify (~214k) + canonical check + `RoundVerified` event carrying the 48-byte signature + cold request slots + USDC transfer. Accepting uncompressed signatures (v2) would save ~80k.

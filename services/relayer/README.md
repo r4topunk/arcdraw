@@ -19,16 +19,21 @@ curl localhost:8787/healthz
 
 ```
 getBlockNumber -> getLogs(cursor+1..head) in <= 10,000-block windows -> persist cursor after each window
+                  requests with bounty < RELAYER_MIN_BOUNTY are never tracked (a bounty can only go down)
 due = pending requests whose roundTimestamp <= head block timestamp          (chain clock, like the contract)
-for each round (oldest first), batches of RELAYER_MAX_BATCH:
-  inflight tx for this round?  -> check receipt; skip while unconfirmed        (idempotent across restarts)
-  getRequest(ids)              -> drop fulfilled, apply RELAYER_MIN_BOUNTY
+forget inflight records of rounds with nothing due once their nonce is used
+for each round (highest total bounty first, then oldest), batches of RELAYER_MAX_BATCH, until 30s of tick time:
+  inflight tx for this round?  -> receipt? settle. Unconfirmed < RELAYER_RECEIPT_TIMEOUT_MS? skip.
+                                  Past the timeout: nonce used -> drop; still in mempool -> replace with the
+                                  SAME nonce and +25% fees (never a second tx); gone -> drop and resend
+  getRequest(ids)              -> drop fulfilled; drop refunded / below RELAYER_MIN_BOUNTY from state
   roundRandomness(round) set?  -> no beacon needed (cheap path)
   else fetchBeacon + verify    -> retry w/ backoff on fetch errors, skip forged beacons
   gasPrice > max?              -> skip
   simulate fulfillBatch        -> eth_call + estimateGas; skip on revert (e.g. RoundNotReached)
   dry-run?                     -> log `dry_run_would_fulfill` and stop here
-  send (gas = estimate + buffer), record inflight, wait receipt, log `fulfilled`
+  send (gas = estimate + buffer), record inflight (hash, nonce, fees), wait receipt, log `fulfilled`
+  receipt wait timed out?      -> log `skip_receipt_timeout`, keep inflight (not a failed tick)
 ```
 
 ## Configuration
@@ -48,11 +53,11 @@ the key's value is never printed). `node --env-file-if-exists=../../.env` is use
 | `DRAND_URLS` | api.drand.sh, api2.drand.sh, drand.cloudflare.com | Comma-separated relays, tried in order |
 | `DRAND_TIMEOUT_MS` | `5000` | Per-relay timeout |
 | `RELAYER_POLL_MS` | `1500` | Tick interval |
-| `RELAYER_MIN_BOUNTY` | `0` | USDC (decimal, e.g. `0.01`); cheaper requests are left to others |
+| `RELAYER_MIN_BOUNTY` | `0` | USDC (decimal, e.g. `0.01`); cheaper requests are left to others and not tracked (raising it later needs no action; lowering it needs a rescan from `RELAYER_START_BLOCK` with a fresh state file) |
 | `RELAYER_MAX_GAS_PRICE_GWEI` | `100` | Skip sending above this (Arc floor is 20 gwei) |
 | `RELAYER_MAX_BATCH` | `20` | Request ids per `fulfillBatch` |
 | `RELAYER_GAS_BUFFER_PCT` | `20` | Added to the gas estimate |
-| `RELAYER_RECEIPT_TIMEOUT_MS` | `60000` | Receipt wait; also how long an inflight tx blocks resubmission |
+| `RELAYER_RECEIPT_TIMEOUT_MS` | `60000` | Receipt wait; after it, a still-pending tx is replaced with the same nonce |
 | `RELAYER_ERROR_BUDGET` | `5` | Consecutive failed ticks before exit(1) (let the supervisor restart) |
 | `RELAYER_SCAN_CHUNK` | `10000` | getLogs window (max 10,000 on Arc) |
 | `RELAYER_STATE_FILE` | `.state/cursor.json` | Cursor, pending set, inflight txs (atomic writes) |

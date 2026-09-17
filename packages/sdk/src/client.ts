@@ -133,6 +133,9 @@ export type RequestOptions = {
 
 export type TxOverrides = { account?: Account | Address };
 
+/** Explicit nonce and EIP-1559 fees, used to replace a stuck transaction instead of sending a second one. */
+export type ReplacementOverrides = { nonce?: number; maxFeePerGas?: bigint; maxPriorityFeePerGas?: bigint };
+
 /** Map viem errors to `ContractRevertError` carrying the decoded custom error name. */
 export function toArcDrawError(err: unknown, functionName?: string): unknown {
   if (err instanceof ArcDrawError) return err;
@@ -432,7 +435,7 @@ export function createArcDraw(config: ArcDrawConfig): ArcDrawClient {
     async fulfillBatch(
       round: bigint,
       ids: readonly bigint[],
-      o: { beacon?: Beacon; gas?: bigint } & TxOverrides = {},
+      o: { beacon?: Beacon; gas?: bigint } & TxOverrides & ReplacementOverrides = {},
     ): Promise<Hash> {
       const { wallet, account } = requireWallet("fulfillBatch");
       const signature = await signatureFor(round, o.beacon);
@@ -443,6 +446,10 @@ export function createArcDraw(config: ArcDrawConfig): ArcDrawClient {
           args: [round, signature, [...ids]],
           account: o.account ?? account,
           ...(o.gas === undefined ? {} : { gas: o.gas }),
+          ...(o.nonce === undefined ? {} : { nonce: o.nonce }),
+          ...(o.maxFeePerGas === undefined
+            ? {}
+            : { maxFeePerGas: o.maxFeePerGas, maxPriorityFeePerGas: o.maxPriorityFeePerGas ?? 0n }),
         });
         return wallet.writeContract({ ...request, chain: wallet.chain ?? null });
       });
@@ -535,7 +542,7 @@ export interface ArcDrawClient {
   fulfillBatch(
     round: bigint,
     ids: readonly bigint[],
-    o?: { beacon?: Beacon; gas?: bigint } & TxOverrides,
+    o?: { beacon?: Beacon; gas?: bigint } & TxOverrides & ReplacementOverrides,
   ): Promise<Hash>;
   refund(id: bigint): Promise<Hash>;
   scanLogs(o: { fromBlock: bigint; toBlock?: bigint; chunkSize?: bigint }): AsyncGenerator<LogChunk>;

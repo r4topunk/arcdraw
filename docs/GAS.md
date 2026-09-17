@@ -8,19 +8,20 @@
 
 | Scenario | Gas | USDC at 20 gwei | Description |
 |---|---:|---:|---|
-| `requestRandomness_noBounty` | 94,192 | 0.00188 | `requestRandomness(0, 0)`, first request (requestCount 0 -> 1) |
-| `requestRandomness_bounty` | 119,715 | 0.00239 | `requestRandomness(100_000, 0.01 USDC)` incl. USDC transferFrom |
+| `requestRandomness_noBounty` | 94,208 | 0.00188 | `requestRandomness(0, 0)`, first request (requestCount 0 -> 1) |
+| `requestRandomness_bounty` | 119,731 | 0.00239 | `requestRandomness(100_000, 0.01 USDC)` incl. USDC transferFrom |
 | `verifyRound_fresh` | 257,192 | 0.00514 | `verifyRound` with a real quicknet signature (BLS verify + store + event) |
 | `fulfill_freshRound_bounty_noCallback` | 313,410 | 0.00627 | `fulfill`, fresh round, bounty paid, EOA requester |
 | `fulfill_verifiedRound_bounty_noCallback` | 75,845 | 0.00152 | `fulfill`, round already verified (signature omitted) |
-| `fulfill_freshRound_bounty_fairAllocationCallback` | 345,721 | 0.00691 | `fulfill`, fresh round, bounty, FairAllocation callback |
-| `fulfillBatch_freshRound_5ids_bounty_noCallback` | 446,892 | 0.00894 | `fulfillBatch`, fresh round, 5 ids, one bounty transfer |
-| `refund_bounty` | 49,659 | 0.00099 | `refund` after expiry, bounty returned |
+| `fulfill_freshRound_bounty_fairAllocationCallback` | 345,720 | 0.00691 | `fulfill`, fresh round, bounty, FairAllocation callback |
+| `fulfillBatch_freshRound_5ids_bounty_noCallback` | 446,870 | 0.00894 | `fulfillBatch`, fresh round, 5 ids, one bounty transfer |
+| `refund_bounty` | 71,860 | 0.00144 | `refund` after expiry, bounty returned |
 | `fairAllocation_createSale_bounty` | 161,839 | 0.00324 | FairAllocation `createSale` with 0.01 USDC bounty escrow |
-| `fairAllocation_subscribe` | 98,432 | 0.00197 | FairAllocation `subscribe` (second subscriber) |
-| `fairAllocation_draw` | 198,077 | 0.00396 | FairAllocation `draw` (approve + requestRandomness) |
-| `fairAllocation_finalize_N5_K3` | 84,199 | 0.00168 | FairAllocation `finalize`, N=5, K=3 |
-| `fairAllocation_claimRefund` | 97,125 | 0.00194 | FairAllocation `claimRefund` (loser) |
+| `fairAllocation_subscribe` | 98,421 | 0.00197 | FairAllocation `subscribe` (second subscriber) |
+| `fairAllocation_draw` | 198,092 | 0.00396 | FairAllocation `draw` (approve + requestRandomness) |
+| `fairAllocation_finalize_N5_K3` | 83,511 | 0.00167 | FairAllocation `finalize`, N=5, K=3 (credits the treasury) |
+| `fairAllocation_withdrawTreasury` | 48,604 | 0.00097 | FairAllocation `withdrawTreasury` (pull proceeds) |
+| `fairAllocation_claimRefund` | 97,190 | 0.00194 | FairAllocation `claimRefund` (loser) |
 
 ## Other measurements (non-isolated tests, see `forge test -vv`)
 
@@ -28,9 +29,9 @@
 |---|---:|---|
 | BLS verify only (spike harness) | 213,915 | `test/spike/QuicknetVerify.t.sol` |
 | `verifyRound` on an Arc mainnet fork (block 21283310) | 235,588 | `test/fork/ArcMainnetFork.t.sol` (execution gas, no intrinsic) |
-| FairAllocation `finalize`, N=1000, K=100 | 321,227 | `test_gas_finalize_N1000_K100` |
-| FairAllocation `finalize`, N=1000, K=999 (worst case) | 1,064,913 | `test_gas_finalize_N1000_K999` |
-| FairAllocation callback (`rawFulfillRandomness`, cold storage) | 33,994 of 60,000 budget | `test_callbackGasIsEnough` trace |
+| FairAllocation `finalize`, N=1000, K=100 | 314,708 | `test_gas_finalize_N1000_K100` |
+| FairAllocation `finalize`, N=1000, K=999 (worst case) | 1,058,331 | `test_gas_finalize_N1000_K999` |
+| FairAllocation callback (`rawFulfillRandomness`, cold storage) | 34,038 of 60,000 budget | `test_callbackGasIsEnough` trace |
 
 ## Notes for relayers
 

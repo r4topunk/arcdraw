@@ -55,6 +55,9 @@ contract ArcDrawCoordinator is IArcDrawCoordinator {
     /// @inheritdoc IArcDrawCoordinator
     mapping(uint64 round => bytes32 drandRandomness) public roundRandomness;
 
+    /// @inheritdoc IArcDrawCoordinator
+    mapping(uint256 requestId => uint96 bounty) public refundedBounty;
+
     mapping(uint256 requestId => Request) internal _requests;
 
     error Reentrancy();
@@ -185,7 +188,10 @@ contract ArcDrawCoordinator is IArcDrawCoordinator {
         address requester = r.requester;
         r.status = Status.Refunded;
         r.bounty = 0;
-        if (bounty > 0) IERC20Minimal(USDC).safeTransfer(requester, bounty);
+        if (bounty > 0) {
+            refundedBounty[requestId] = bounty;
+            IERC20Minimal(USDC).safeTransfer(requester, bounty);
+        }
         emit BountyRefunded(requestId, requester, bounty);
     }
 

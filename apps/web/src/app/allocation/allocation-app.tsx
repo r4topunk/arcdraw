@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { arcMainnet, USDC_ADDRESS } from "@/lib/chain";
-import { arcDrawCoordinatorAbi, fairAllocationFullAbi, SALE_PHASE, usdcAbi, type SalePhase } from "@/lib/contracts";
+import { arcDrawCoordinatorAbi, DRAW_TIMEOUT_S, fairAllocationFullAbi, SALE_PHASE, usdcAbi, type SalePhase } from "@/lib/contracts";
 import { deployments } from "@/lib/deployments";
 import { roundTime } from "@/lib/drand";
 import { explainError } from "@/lib/errors";
@@ -290,22 +290,27 @@ function SaleDetail({ fair, coordinator, saleId }: { fair: Address; coordinator:
     contracts: [
       { ...base, functionName: "getSale", args: [saleId] },
       { ...base, functionName: "participants", args: [saleId] },
+      { ...base, functionName: "treasuryOwed", args: [saleId] },
+      { ...base, functionName: "creatorOwed", args: [saleId] },
     ],
     query: { refetchInterval: 3000 },
   });
   const sale = reads.data?.[0]?.result as SaleT | undefined;
   const participants = (reads.data?.[1]?.result as readonly Address[] | undefined) ?? [];
+  const treasuryOwed = (reads.data?.[2]?.result as bigint | undefined) ?? 0n;
+  const creatorOwed = (reads.data?.[3]?.result as bigint | undefined) ?? 0n;
   const phase = sale ? phaseOf(sale.phase) : null;
+  const settled = phase === "Finalized" || phase === "Cancelled";
 
   const winnerReads = useReadContracts({
     contracts:
-      phase === "Finalized"
+      settled
         ? participants.flatMap((p) => [
             { ...base, functionName: "isWinner" as const, args: [saleId, p] as const },
             { ...base, functionName: "hasRefunded" as const, args: [saleId, p] as const },
           ])
         : [],
-    query: { enabled: phase === "Finalized" && participants.length > 0, refetchInterval: 6000 },
+    query: { enabled: settled && participants.length > 0, refetchInterval: 6000 },
   });
 
   const request = useReadContracts({
@@ -374,6 +379,7 @@ function SaleDetail({ fair, coordinator, saleId }: { fair: Address; coordinator:
                         <AddressLink address={p} />
                         {i === me && <span className="text-xs text-muted-foreground">(you)</span>}
                       </span>
+                      {phase === "Cancelled" && (refunded ? <Badge>Refunded</Badge> : refunded === false ? <Badge variant="warn">Refund due</Badge> : null)}
                       {phase === "Finalized" &&
                         (win ? <Badge variant="ok">Allocated</Badge> : refunded ? <Badge>Refunded</Badge> : win === false ? <Badge variant="warn">Refund due</Badge> : null)}
                     </li>
@@ -417,20 +423,48 @@ function SaleDetail({ fair, coordinator, saleId }: { fair: Address; coordinator:
                     Waiting for drand round <span className="tabular font-mono text-foreground">#{formatInt(req.round)}</span>
                     {roundTs !== null && now !== null && now < roundTs ? ` (out in ${formatDuration(roundTs - now)})` : " (published)"}. A relayer delivers it, or you can.
                   </p>
-                  {roundTs !== null && now !== null && now >= roundTs && (
-                    <FulfillButton coordinator={coordinator} requestId={sale.requestId} round={req.round} size="default" />
+                  {req.status === 3 ? (
+                    <>
+                      <p className="text-muted-foreground">The request is fulfilled but the callback did not land. Copy the stored seed.</p>
+                      <SaleAction fair={fair} saleId={saleId} fn="syncSeed" label="Sync seed" />
+                    </>
+                  ) : (
+                    roundTs !== null &&
+                    now !== null &&
+                    now >= roundTs && (
+                      <>
+                        <FulfillButton coordinator={coordinator} requestId={sale.requestId} round={req.round} size="default" />
+                        {now >= roundTs + DRAW_TIMEOUT_S && (
+                          <>
+                            <p className="text-muted-foreground">Nobody delivered the draw for 7 days. Cancelling refunds every subscriber.</p>
+                            <SaleAction fair={fair} saleId={saleId} fn="cancelStuckDraw" label="Cancel sale" />
+                          </>
+                        )}
+                      </>
+                    )
                   )}
                 </>
               )}
               {phase === "Drawn" && (
                 <>
-                  <p className="text-muted-foreground">The seed has arrived. Finalize runs the shuffle, pays the treasury and unlocks refunds.</p>
+                  <p className="text-muted-foreground">The seed has arrived. Finalize runs the shuffle, credits the treasury and unlocks refunds.</p>
                   <SaleAction fair={fair} saleId={saleId} fn="finalize" label="Finalize" />
+                </>
+              )}
+              {phase === "Cancelled" && (
+                <>
+                  <p className="text-muted-foreground">Cancelled: the draw was never delivered. Every subscriber gets a full refund.</p>
+                  {me >= 0 && myRefunded === false && <SaleAction fair={fair} saleId={saleId} fn="claimRefund" label={`Claim ${formatUsdc(sale.pricePerSlot)} refund`} />}
+                  {me >= 0 && myRefunded === true && <Alert>Your refund was paid.</Alert>}
                 </>
               )}
               {phase === "Finalized" && (
                 <>
-                  <p className="text-muted-foreground">Settled. Treasury received {formatUsdc(sale.pricePerSlot * BigInt(Math.min(n, k)))}.</p>
+                  <p className="text-muted-foreground">
+                    Settled. Treasury {treasuryOwed > 0n ? "is owed" : "received"} {formatUsdc(sale.pricePerSlot * BigInt(Math.min(n, k)))}.
+                  </p>
+                  {treasuryOwed > 0n && <SaleAction fair={fair} saleId={saleId} fn="withdrawTreasury" label="Pay treasury" />}
+                  {creatorOwed > 0n && <SaleAction fair={fair} saleId={saleId} fn="withdrawCreatorBounty" label={`Return ${formatUsdc(creatorOwed)} bounty to creator`} />}
                   {me >= 0 && myWin === true && <Alert variant="ok">You received an allocation.</Alert>}
                   {me >= 0 && myWin === false && myRefunded === false && <SaleAction fair={fair} saleId={saleId} fn="claimRefund" label={`Claim ${formatUsdc(sale.pricePerSlot)} refund`} />}
                   {me >= 0 && myRefunded === true && <Alert>Your refund was paid.</Alert>}
@@ -473,7 +507,7 @@ function Cell({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function SaleAction({ fair, saleId, fn, label }: { fair: Address; saleId: bigint; fn: "draw" | "finalize" | "claimRefund"; label: string }) {
+function SaleAction({ fair, saleId, fn, label }: { fair: Address; saleId: bigint; fn: "draw" | "finalize" | "claimRefund" | "withdrawTreasury" | "withdrawCreatorBounty" | "syncSeed" | "cancelStuckDraw"; label: string }) {
   const queryClient = useQueryClient();
   const { state, run, busy } = useTx();
   return (

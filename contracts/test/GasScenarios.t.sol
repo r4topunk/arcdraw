@@ -115,6 +115,8 @@ contract GasScenariosTest is Test {
         _snap("fulfill_freshRound_bounty_fairAllocationCallback");
         fa.finalize(saleId);
         _snap("fairAllocation_finalize_N5_K3");
+        fa.withdrawTreasury(saleId);
+        _snap("fairAllocation_withdrawTreasury");
         address loser;
         for (uint256 i; i < 5; i++) {
             address u = address(uint160(0x5000 + i));
