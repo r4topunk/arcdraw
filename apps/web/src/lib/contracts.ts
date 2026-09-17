@@ -1,5 +1,5 @@
 import { erc20Abi } from "viem";
-import { arcDrawCoordinatorAbi, fairAllocationAbi } from "@/generated/abis";
+import { arcDrawCoordinatorAbi, fairAllocationAbi } from "@arcdraw/sdk";
 
 export { arcDrawCoordinatorAbi };
 

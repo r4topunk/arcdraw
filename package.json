@@ -11,12 +11,15 @@
     "contracts:build": "cd contracts && forge build",
     "contracts:test": "cd contracts && forge test",
     "contracts:fmt": "cd contracts && forge fmt --check",
-    "build": "pnpm -r --if-present build",
+    "build": "pnpm contracts:build && pnpm -r --if-present build",
     "test": "pnpm contracts:test && pnpm -r --if-present test",
     "test:ts": "pnpm -r --if-present test",
     "lint": "pnpm contracts:fmt && pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "relayer": "pnpm --filter @arcdraw/relayer start",
-    "relayer:dry-run": "pnpm --filter @arcdraw/relayer dry-run"
+    "relayer:dry-run": "pnpm --filter @arcdraw/relayer dry-run",
+    "check:generated": "pnpm --filter @arcdraw/sdk abis:check && pnpm --filter @arcdraw/sdk deployments:check",
+    "verify": "pnpm build && pnpm check:generated && pnpm lint && pnpm typecheck && pnpm test",
+    "web:dev": "pnpm --filter @arcdraw/web dev"
   }
 }

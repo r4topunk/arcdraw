@@ -13,15 +13,33 @@
     "usdc": "0x3600000000000000000000000000000000000000"
   },
   "contracts": {
-    "ArcDrawCoordinator": { "address": "", "deployBlock": null, "deployTx": "", "verified": false },
-    "FairAllocation": { "address": "", "deployBlock": null, "deployTx": "", "verified": false }
+    "ArcDrawCoordinator": {
+      "address": "",
+      "deployBlock": null,
+      "deployTx": "",
+      "verified": false
+    },
+    "FairAllocation": {
+      "address": "",
+      "deployBlock": null,
+      "deployTx": "",
+      "verified": false
+    }
   },
   "proofs": {
     "requestTx": "",
     "fulfillTx": "",
-    "callbackTx": "",
+    "fulfillBatchTx": "",
     "refundTx": "",
+    "lateFulfillTx": "",
     "fairAllocationDrawTx": "",
-    "measuredGas": { "requestRandomness": null, "fulfillFirstInRound": null, "fulfillVerifiedRound": null }
+    "callbackTx": "",
+    "fairAllocationFinalizeTx": "",
+    "fairAllocationRefundTx": "",
+    "measuredGas": {
+      "requestRandomness": null,
+      "fulfillFirstInRound": null,
+      "fulfillVerifiedRound": null
+    }
   }
 }

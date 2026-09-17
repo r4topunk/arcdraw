@@ -11,7 +11,7 @@ ARC_FORK_TESTS=true forge test --match-path 'test/fork/*' --threads 1   # read-o
 node script/gas-report.mjs                 # isolated gas scenarios -> docs/GAS.md
 forge snapshot                             # per-test gas -> contracts/.gas-snapshot
 node ../packages/sdk/scripts/export-abis.mjs   # ABIs -> packages/sdk/src/generated/abis.ts (--check in CI)
-pnpm install && pnpm -r build && pnpm -r test   # sdk, relayer, web (from Stage 2)
+pnpm install && pnpm run verify   # everything: forge+TS build, drift checks, lint, typecheck, tests (NOT `pnpm ci`, a pnpm builtin)
 ```
 
 Source of truth: `docs/PRD.md` (scope) → `docs/SPEC.md` (behaviour) → `contracts/src/interfaces/*.sol` (ABI).
@@ -26,8 +26,9 @@ If code and spec disagree, fix the code or update the spec in the same commit, w
 | `contracts/lib/forge-std/` | git submodule |
 | `packages/sdk/` | `@arcdraw/sdk` (viem, noble) |
 | `services/relayer/` | `@arcdraw/relayer` (Node, JSON logs) |
-| `apps/web/` | Next.js site |
+| `apps/web/` | Next.js static site; imports ABIs, chain, drand and round math from `@arcdraw/sdk` |
 | `deployments/arc-mainnet.json` | Addresses, deploy blocks, proof txs, measured gas |
+| `DEPLOY.md` / `CHECKLIST.md` / `SUBMISSION.md` | Owner runbook, human-only steps, DoraHacks fields |
 
 ## Hard rules
 

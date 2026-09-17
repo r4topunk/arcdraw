@@ -10,7 +10,6 @@ pnpm install
 pnpm --filter @arcdraw/web dev        # http://localhost:3000
 pnpm --filter @arcdraw/web build      # static site in apps/web/out
 pnpm --filter @arcdraw/web typecheck
-pnpm --filter @arcdraw/web abis       # refresh src/generated/abis.ts after forge build
 ```
 
 ## Routes

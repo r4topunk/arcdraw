@@ -377,7 +377,7 @@ Fresh-round `fulfill` is 313k, above the PRD's "<= 300k (+ callback)" target by 
 2. `cd contracts && forge script script/Deploy.s.sol --rpc-url arc_mainnet --account $FOUNDRY_ACCOUNT --broadcast` deploys ArcDrawCoordinator and FairAllocation through the CREATE2 deployer `0x4e59...956C` with salt `keccak256("arcdraw.v1")` (override `ARCDRAW_SALT`). Addresses are deterministic for a given bytecode, identical on testnet, and a rerun skips deployed contracts. Dry-run first without `--broadcast`.
 3. Verify both on explorer.arc.io (`forge verify-contract --verifier blockscout --verifier-url https://explorer.arc.io/api/`; UNKNOWN until tried).
 4. `node contracts/script/write-deployment.mjs --chain 5042` records addresses, deploy txs and blocks from `broadcast/Deploy.s.sol/5042/run-latest.json` into `deployments/arc-mainnet.json` (no RPC, no keys). Then `pnpm --filter @arcdraw/sdk abis:check`.
-5. Start the relayer (dedicated key via env) and run `script/Proof.s.sol`, or the web app:
+5. Start the relayer (dedicated key via env) and run the `cast` / web app steps in [DEPLOY.md](../DEPLOY.md) section 8:
    a. EOA request, bounty 0, and fulfill by the relayer (`requestTx`, `fulfillTx`)
    b. Consumer request with a 0.01 USDC bounty and the callback (`callbackTx`)
    c. 2 requests on the same round via `fulfillBatch` (reuse path)
