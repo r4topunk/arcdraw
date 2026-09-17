@@ -94,9 +94,14 @@ td code,.mono{font-family:var(--mono);font-size:13px}
 td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
 .status{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);gap:40px;margin-top:40px}
 .dot{font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:8px;color:var(--warn)}
+.dot.live{color:var(--ok)}
+.addrs{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:6px;font-size:14px}
+.addrs li{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}
+.addrs a{color:var(--ink);text-decoration-color:var(--line);text-underline-offset:3px}
+.addrs a:hover{color:var(--accent)}
 .dot::before{content:"";width:8px;height:8px;border-radius:2px;background:currentColor}
 .status p{color:var(--muted);margin-top:8px;max-width:44ch}
-.docs{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 32px}
+.docs{list-style:none;margin:0;padding:0;display:grid;align-content:start;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 32px}
 .docs a{display:flex;justify-content:space-between;gap:12px;padding-block:11px;border-top:1px solid var(--line);text-decoration:none;font-size:15px}
 .docs a span{color:var(--faint);font-size:13px}
 .docs a:hover{color:var(--accent)}
@@ -268,14 +273,19 @@ footer{padding-block:28px 56px;border-top:1px solid var(--line-soft);color:var(-
             <tr><th scope="row">Contract</th><td><code>ArcDrawCoordinator</code> checks drand signatures onchain, plus a <code>FairAllocation</code> demo that refunds losers in full</td><td class="num">142 Foundry tests</td></tr>
             <tr><th scope="row">SDK</th><td><code>@arcdraw/sdk</code> to request randomness and verify results</td><td class="num">27 tests</td></tr>
             <tr><th scope="row">Service</th><td>Permissionless relayer that fetches rounds from drand and delivers them</td><td class="num">26 tests</td></tr>
-            <tr><th scope="row">Site</th><td>Request a draw and inspect any past result</td><td class="num">Next.js static</td></tr>
+            <tr><th scope="row">Site</th><td>Request a draw and inspect any past result</td><td class="num">Next.js static, hosting pending</td></tr>
           </tbody>
         </table>
       </div>
       <div class="status">
         <div>
-          <span class="dot">Mainnet deploy in progress</span>
-          <p>Built and tested locally against an Arc mainnet fork. Contract addresses and proof transactions will be listed in the repository once deployed.</p>
+          <span class="dot live">Live on Arc mainnet</span>
+          <p>Deployed 2026-09-17 and verified on Sourcify. Requests, a batch fulfill and a full FairAllocation sale (draw, callback, finalize, refunds) ran onchain. Proof txs are in the README.</p>
+          <ul class="addrs">
+            <li><span>Coordinator</span><a class="mono" href="https://explorer.arc.io/address/0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324">0x3cfD…0324</a></li>
+            <li><span>FairAllocation</span><a class="mono" href="https://explorer.arc.io/address/0x536aA4934edc6a6d1502F504185B567ef6c53f89">0x536a…3f89</a></li>
+            <li><span>First fulfill</span><a class="mono" href="https://explorer.arc.io/tx/0x6db4e6a1840cbe6ef4607e067cc1f183a7e7bfbad721f940a7286179a82a5feb">0x6db4…5feb</a></li>
+          </ul>
         </div>
         <ul class="docs">
           <li><a href="https://github.com/r4topunk/arcdraw/blob/main/README.md">README<span>README.md</span></a></li>

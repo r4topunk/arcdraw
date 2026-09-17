@@ -26,7 +26,13 @@ describe("config", () => {
 
   it("requires a key unless dry-run, and a coordinator when none is deployed", () => {
     expect(() => loadConfig({ COORDINATOR_ADDRESS: COORD })).toThrow(/RELAYER_PRIVATE_KEY is required/);
-    expect(() => loadConfig({ RELAYER_DRY_RUN: "true" })).toThrow(/COORDINATOR_ADDRESS is required/);
+    expect(() => loadConfig({ RELAYER_DRY_RUN: "true", ARC_CHAIN_ID: "5042002" })).toThrow(
+      /COORDINATOR_ADDRESS is required/,
+    );
+    // Arc mainnet falls back to the recorded deployment
+    expect(loadConfig({ RELAYER_DRY_RUN: "true" }).coordinator).toBe(
+      "0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324",
+    );
     expect(() => loadConfig({ COORDINATOR_ADDRESS: COORD, RELAYER_PRIVATE_KEY: FAKE_KEY })).not.toThrow();
   });
 

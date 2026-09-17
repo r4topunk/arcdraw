@@ -14,32 +14,35 @@
   },
   "contracts": {
     "ArcDrawCoordinator": {
-      "address": "",
-      "deployBlock": null,
-      "deployTx": "",
-      "verified": false
+      "address": "0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324",
+      "deployBlock": 21338070,
+      "deployTx": "0xda3039bf510003cfd4297bfa0e53bca2d12cdca499c05c0c97623b3a573fb130",
+      "verified": true
     },
     "FairAllocation": {
-      "address": "",
-      "deployBlock": null,
-      "deployTx": "",
-      "verified": false
+      "address": "0x536aA4934edc6a6d1502F504185B567ef6c53f89",
+      "deployBlock": 21338075,
+      "deployTx": "0xb1399e5697398eb6885b496e3bd054c7ff2fe35ffeb810fada14059a41662f7b",
+      "verified": true
     }
   },
   "proofs": {
-    "requestTx": "",
-    "fulfillTx": "",
-    "fulfillBatchTx": "",
+    "requestTx": "0x90833c5d63fd8dcc0d3d265dc3562efba7ad2eb5e26bd6621ee3480d417b4e24",
+    "fulfillTx": "0x6db4e6a1840cbe6ef4607e067cc1f183a7e7bfbad721f940a7286179a82a5feb",
+    "fulfillBatchTx": "0x4fb45dc8d1aeafb32ba1edb5694c24028566f80b3f16570e0a3254d5a9eabd5e",
     "refundTx": "",
     "lateFulfillTx": "",
-    "fairAllocationDrawTx": "",
-    "callbackTx": "",
-    "fairAllocationFinalizeTx": "",
-    "fairAllocationRefundTx": "",
+    "fairAllocationDrawTx": "0x524f6cc5f0ac2d4c442f7f53479004f613e408a10f4bb4f6bc71c030b987e5ab",
+    "callbackTx": "0x1d447ecb7e135bff0d14dc7722e172645df26a17892e05850354fe36155fdc62",
+    "fairAllocationFinalizeTx": "0xf2d021ca69b5038c960dc60ee1101ddb33c53968cffb101ee61f632c5a75a90d",
+    "fairAllocationRefundTx": "0x1a7f909aebb2f42a6835f58d5c9206f82d2c9359e9302348b2109f4b92002a5a",
     "measuredGas": {
-      "requestRandomness": null,
-      "fulfillFirstInRound": null,
+      "requestRandomness": 94208,
+      "fulfillFirstInRound": 292424,
       "fulfillVerifiedRound": null
-    }
-  }
+    },
+    "bountyRequestTx": "0x7bd54a4279ca4ff9aa48cf8686bacf108369f82e6052273cbfa56dba527a2beb",
+    "bountyFulfillTx": "0x3da592f61c4975e273d4bd8b9d9691017449d4eaae2001dc3fadc8e49b954778"
+  },
+  "salt": "keccak256(\"arcdraw.v1\")"
 }

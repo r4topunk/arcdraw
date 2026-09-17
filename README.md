@@ -11,13 +11,14 @@ Arc has `PREVRANDAO = 0` and no VRF provider, so contracts on Arc have no secure
 Relayers are permissionless and can earn an optional USDC bounty.
 
 > **Status: experimental, unaudited.** The BLS verification library has not been audited. Don't use ArcDraw to secure value you can't afford to lose.
-> Mainnet addresses and proof txs are in [deployments/arc-mainnet.json](deployments/arc-mainnet.json) and [Mainnet proof](#mainnet-proof). If the addresses there are empty, it isn't deployed yet.
+> **Live on Arc mainnet** since 2026-09-17. Addresses and proof txs are in [deployments/arc-mainnet.json](deployments/arc-mainnet.json) and [Mainnet proof](#mainnet-proof). Source verified on [Sourcify](https://sourcify.dev) (exact match).
 
 | | |
 |---|---|
 | Project page | https://r4topunk.github.io/arcdraw/ |
-| Live site | `[LIVE_URL]` |
-| Coordinator (Arc mainnet, chain id 5042) | `[COORDINATOR_ADDRESS]` on [explorer.arc.io](https://explorer.arc.io) |
+| Live site | https://r4topunk.github.io/arcdraw/ (project page; hosted app pending) |
+| Coordinator (Arc mainnet, chain id 5042) | [`0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324`](https://explorer.arc.io/address/0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324) |
+| FairAllocation demo | [`0x536aA4934edc6a6d1502F504185B567ef6c53f89`](https://explorer.arc.io/address/0x536aA4934edc6a6d1502F504185B567ef6c53f89) |
 | Docs | [Integration guide](apps/web/content/integration.md) · [PRD](docs/PRD.md) · [Spec](docs/SPEC.md) · [Gas](docs/GAS.md) · [FAQ](apps/web/content/faq.md) |
 | Operators | [DEPLOY.md](DEPLOY.md) (mainnet runbook) · [CHECKLIST.md](CHECKLIST.md) (human-only steps) · [SUBMISSION.md](SUBMISSION.md) |
 
@@ -84,7 +85,7 @@ Relayers are permissionless and can earn an optional USDC bounty.
 Requirements: Node >= 22, pnpm 11, Foundry (forge 1.x with Osaka support), git.
 
 ```bash
-git clone --recurse-submodules [REPO_URL] arcdraw && cd arcdraw
+git clone --recurse-submodules https://github.com/r4topunk/arcdraw arcdraw && cd arcdraw
 pnpm install
 
 pnpm build        # forge build + sdk + relayer + static site (apps/web/out)
@@ -152,7 +153,7 @@ Measured with isolated transactions and real quicknet signatures ([docs/GAS.md](
 | `fulfillBatch`, fresh round, 5 requests | 446,903 | 0.0089 |
 | `refund`, bounty returned | 71,893 | 0.0014 |
 
-The BLS check alone costs 213,915 gas, and `verifyRound` used 235,588 execution gas on an Arc mainnet fork. Gas from real mainnet receipts: `[MAINNET_MEASURED_GAS]` (recorded in `deployments/arc-mainnet.json` after the proof run).
+The BLS check alone costs 213,915 gas, and `verifyRound` used 235,588 execution gas on an Arc mainnet fork. Gas from real mainnet receipts: `requestRandomness` 94,208 gas; first fulfill in a round 292,424 gas (0.0058 USDC); `fulfillBatch` for 2 requests on one round 326,596 gas (recorded in `deployments/arc-mainnet.json` after the proof run).
 
 ## Trust model
 
@@ -174,15 +175,15 @@ Known limitations:
 
 ## Mainnet proof
 
-The owner fills this in after running [DEPLOY.md section 8](DEPLOY.md#8-on-chain-proof-scenario-spends). Each hash links to explorer.arc.io.
+Run on 2026-09-17 following [DEPLOY.md section 8](DEPLOY.md#8-on-chain-proof-scenario-spends). Each hash links to explorer.arc.io.
 
 | Scenario | Tx |
 |---|---|
-| Deploy ArcDrawCoordinator / FairAllocation | `[DEPLOY_TX_COORDINATOR]` / `[DEPLOY_TX_FAIR_ALLOCATION]` |
-| EOA request, then fulfilled by the relayer | `[REQUEST_TX]` → `[FULFILL_TX]` |
-| Two requests on one round, one `fulfillBatch` (reuse path) | `[FULFILL_BATCH_TX]` |
-| Refund after the timeout, then a late fulfill | `[REFUND_TX]` → `[LATE_FULFILL_TX]` |
-| FairAllocation: draw → fulfill with callback → finalize → loser refund | `[FA_DRAW_TX]` → `[CALLBACK_TX]` → `[FA_FINALIZE_TX]` → `[FA_REFUND_TX]` |
+| Deploy ArcDrawCoordinator / FairAllocation | [`0xda3039bf…`](https://explorer.arc.io/tx/0xda3039bf510003cfd4297bfa0e53bca2d12cdca499c05c0c97623b3a573fb130) / [`0xb1399e56…`](https://explorer.arc.io/tx/0xb1399e5697398eb6885b496e3bd054c7ff2fe35ffeb810fada14059a41662f7b) |
+| EOA request, then fulfilled by the relayer | [`0x90833c5d…`](https://explorer.arc.io/tx/0x90833c5d63fd8dcc0d3d265dc3562efba7ad2eb5e26bd6621ee3480d417b4e24) → [`0x6db4e6a1…`](https://explorer.arc.io/tx/0x6db4e6a1840cbe6ef4607e067cc1f183a7e7bfbad721f940a7286179a82a5feb) |
+| Two requests on one round, one `fulfillBatch` (reuse path) | [`0x4fb45dc8…`](https://explorer.arc.io/tx/0x4fb45dc8d1aeafb32ba1edb5694c24028566f80b3f16570e0a3254d5a9eabd5e) |
+| Request with a 0.01 USDC bounty, fulfilled by the relayer (bounty paid) | [`0x7bd54a42…`](https://explorer.arc.io/tx/0x7bd54a4279ca4ff9aa48cf8686bacf108369f82e6052273cbfa56dba527a2beb) → [`0x3da592f6…`](https://explorer.arc.io/tx/0x3da592f61c4975e273d4bd8b9d9691017449d4eaae2001dc3fadc8e49b954778) |
+| FairAllocation: draw → fulfill with callback → finalize → loser refund | [`0x524f6cc5…`](https://explorer.arc.io/tx/0x524f6cc5f0ac2d4c442f7f53479004f613e408a10f4bb4f6bc71c030b987e5ab) → [`0x1d447ecb…`](https://explorer.arc.io/tx/0x1d447ecb7e135bff0d14dc7722e172645df26a17892e05850354fe36155fdc62) → [`0xf2d021ca…`](https://explorer.arc.io/tx/0xf2d021ca69b5038c960dc60ee1101ddb33c53968cffb101ee61f632c5a75a90d) → [`0x1a7f909a…`](https://explorer.arc.io/tx/0x1a7f909aebb2f42a6835f58d5c9206f82d2c9359e9302348b2109f4b92002a5a) |
 
 ## Credits
 

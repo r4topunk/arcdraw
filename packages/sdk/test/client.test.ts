@@ -79,10 +79,18 @@ describe("createArcDraw config", () => {
   });
 
   it("requires an explicit coordinator when the chain has no known deployment", () => {
-    const { publicClient } = mockClient(() => null);
+    const publicClient = createPublicClient({
+      chain: arcTestnet,
+      transport: custom({ request: async () => null }),
+    });
     expect(() => createArcDraw({ publicClient })).toThrow(UnsupportedChainError);
     const client = createArcDraw({ publicClient, coordinator: COORD.toLowerCase() });
     expect(client.coordinator).toBe(COORD); // checksummed
+  });
+
+  it("defaults to the recorded Arc mainnet deployment", () => {
+    const { publicClient } = mockClient(() => null);
+    expect(createArcDraw({ publicClient }).coordinator).toBe("0x3cfDaa3521fDff2b891590c2693972Eb3e1B0324");
   });
 
   it("write methods throw MissingWalletError without a wallet", async () => {
