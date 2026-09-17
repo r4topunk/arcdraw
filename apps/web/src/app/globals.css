@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque/wght.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: oklch(0.974 0.009 85);
+  --foreground: oklch(0.2 0.02 262);
+  --card: oklch(0.992 0.005 85);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.94 0.01 85);
+  --muted-foreground: oklch(0.47 0.02 262);
+  --border: oklch(0.87 0.012 85);
+  --input: oklch(0.84 0.012 85);
+  --primary: oklch(0.22 0.03 262);
+  --primary-foreground: oklch(0.975 0.008 85);
+  --secondary: oklch(0.93 0.012 85);
+  --secondary-foreground: var(--foreground);
+  --signal: oklch(0.64 0.215 36);
+  --signal-ink: oklch(0.5 0.19 34);
+  --signal-soft: oklch(0.93 0.045 45);
+  --ok: oklch(0.5 0.11 162);
+  --ok-soft: oklch(0.94 0.04 162);
+  --warn: oklch(0.52 0.12 70);
+  --warn-soft: oklch(0.95 0.05 85);
+  --danger: oklch(0.52 0.19 27);
+  --danger-soft: oklch(0.95 0.035 27);
+  --ring: oklch(0.64 0.215 36);
+  --grid: oklch(0.2 0.02 262 / 0.045);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: oklch(0.155 0.012 262);
+  --foreground: oklch(0.95 0.008 85);
+  --card: oklch(0.19 0.014 262);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.23 0.015 262);
+  --muted-foreground: oklch(0.72 0.015 262);
+  --border: oklch(0.3 0.016 262);
+  --input: oklch(0.34 0.016 262);
+  --primary: oklch(0.95 0.008 85);
+  --primary-foreground: oklch(0.17 0.012 262);
+  --secondary: oklch(0.25 0.015 262);
+  --secondary-foreground: var(--foreground);
+  --signal: oklch(0.72 0.19 42);
+  --signal-ink: oklch(0.78 0.16 48);
+  --signal-soft: oklch(0.3 0.07 40);
+  --ok: oklch(0.78 0.13 162);
+  --ok-soft: oklch(0.28 0.05 162);
+  --warn: oklch(0.82 0.13 80);
+  --warn-soft: oklch(0.3 0.05 80);
+  --danger: oklch(0.75 0.15 27);
+  --danger-soft: oklch(0.3 0.07 27);
+  --ring: oklch(0.72 0.19 42);
+  --grid: oklch(0.95 0.008 85 / 0.04);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-soft: var(--signal-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: "Bricolage Grotesque Variable", var(--font-geist-sans), ui-sans-serif, sans-serif;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Grid items default to min-width:auto and can push long hex/code past phone width. */
+  :where(.grid) > * {
+    min-width: 0;
+  }
+  ::selection {
+    background: var(--signal);
+    color: var(--primary-foreground);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, var(--grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .text-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.035em;
+    font-variation-settings: "wdth" 90;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .break-hex {
+    word-break: break-all;
+  }
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 1.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+@keyframes fill-bar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-ring { animation: none; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* Markdown docs */
+.prose-doc { font-size: 0.975rem; line-height: 1.7; }
+.prose-doc > * + * { margin-top: 1rem; }
+.prose-doc h1 { font-family: var(--font-display); letter-spacing: -0.03em; font-size: 2.4rem; line-height: 1.1; font-weight: 700; margin-bottom: 1.5rem; }
+.prose-doc h2 { font-family: var(--font-display); letter-spacing: -0.02em; font-size: 1.55rem; font-weight: 650; margin-top: 2.75rem; padding-top: 1.25rem; border-top: 1px solid var(--border); scroll-margin-top: 5rem; }
+.prose-doc h3 { font-weight: 600; font-size: 1.1rem; margin-top: 2rem; scroll-margin-top: 5rem; }
+.prose-doc p, .prose-doc li { color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground)); }
+.prose-doc a { color: var(--signal-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.prose-doc a:hover { text-decoration-thickness: 2px; }
+.prose-doc ul { list-style: disc; padding-left: 1.25rem; }
+.prose-doc ol { list-style: decimal; padding-left: 1.25rem; }
+.prose-doc li + li { margin-top: 0.35rem; }
+.prose-doc strong { color: var(--foreground); font-weight: 600; }
+.prose-doc blockquote { border-left: 3px solid var(--signal); padding: 0.25rem 0 0.25rem 1rem; color: var(--muted-foreground); }
+.prose-doc :not(pre) > code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0.05rem 0.3rem; word-break: break-word; }
+.prose-doc pre { font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; overflow-x: auto; }
+.prose-doc table { width: 100%; border-collapse: collapse; font-size: 0.875rem; display: block; overflow-x: auto; }
+.prose-doc th { text-align: left; font-weight: 600; border-bottom: 1px solid var(--foreground); padding: 0.5rem 0.75rem 0.5rem 0; white-space: nowrap; }
+.prose-doc td { border-bottom: 1px solid var(--border); padding: 0.5rem 0.75rem 0.5rem 0; vertical-align: top; }
+.prose-doc hr { border: 0; border-top: 1px solid var(--border); margin: 2rem 0; }
