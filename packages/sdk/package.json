@@ -1,0 +1,10 @@
+{
+  "name": "@arcdraw/sdk",
+  "version": "0.0.0",
+  "description": "TypeScript SDK for ArcDraw: request, fulfill and verify drand-backed randomness on Arc",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "files": ["dist"],
+  "peerDependencies": { "viem": "^2.56.0" }
+}

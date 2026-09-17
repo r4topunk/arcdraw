@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.30"
+evm_version = "osaka"
+optimizer = true
+optimizer_runs = 10000
+remappings = [
+  "forge-std/=lib/forge-std/src/",
+  "bls-solidity/=lib/bls-solidity/src/",
+]
+
+[rpc_endpoints]
+arc_mainnet = "https://rpc.mainnet.arc.io"
+arc_testnet = "https://rpc.testnet.arc.io"
+
+[fmt]
+line_length = 120

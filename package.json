@@ -1,0 +1,15 @@
+{
+  "name": "arcdraw",
+  "private": true,
+  "description": "ArcDraw: permissionless, verifiable randomness on Arc from drand quicknet",
+  "license": "MIT",
+  "packageManager": "pnpm@11.0.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm contracts:test && pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  }
+}

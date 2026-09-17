@@ -1,0 +1,8 @@
+{
+  "name": "@arcdraw/relayer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Permissionless ArcDraw relayer: watches requests, fetches drand beacons, fulfills onchain",
+  "license": "MIT",
+  "type": "module"
+}

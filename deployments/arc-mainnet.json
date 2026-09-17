@@ -1,0 +1,27 @@
+{
+  "network": "arc-mainnet",
+  "chainId": 5042,
+  "rpc": "https://rpc.mainnet.arc.io",
+  "explorer": "https://explorer.arc.io",
+  "drand": {
+    "beacon": "quicknet",
+    "chainHash": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+    "genesisTime": 1692803367,
+    "period": 3
+  },
+  "external": {
+    "usdc": "0x3600000000000000000000000000000000000000"
+  },
+  "contracts": {
+    "ArcDrawCoordinator": { "address": "", "deployBlock": null, "deployTx": "", "verified": false },
+    "FairAllocation": { "address": "", "deployBlock": null, "deployTx": "", "verified": false }
+  },
+  "proofs": {
+    "requestTx": "",
+    "fulfillTx": "",
+    "callbackTx": "",
+    "refundTx": "",
+    "fairAllocationDrawTx": "",
+    "measuredGas": { "requestRandomness": null, "fulfillFirstInRound": null, "fulfillVerifiedRound": null }
+  }
+}

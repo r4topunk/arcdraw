@@ -1,0 +1,7 @@
+{
+  "name": "@arcdraw/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "ArcDraw website: landing, docs and live app",
+  "license": "MIT"
+}

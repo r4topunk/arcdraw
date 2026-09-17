@@ -1,0 +1,28 @@
+# deps / builds
+node_modules/
+dist/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+coverage/
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/31337/
+contracts/broadcast/**/dry-run/
+
+# secrets: never commit
+.env
+.env.*
+!.env.example
+*.key
+keystore/
+
+# relayer runtime state
+services/relayer/.state/
+
+# misc
+.DS_Store
+*.log
