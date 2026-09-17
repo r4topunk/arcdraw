@@ -92,12 +92,12 @@ All transactions below have status success. Gas and cost come from the mainnet r
 | 3 | `fulfillBatch`: 2 requests, one round | [0x4fb4…bd5e](https://explorer.arc.io/tx/0x4fb45dc8d1aeafb32ba1edb5694c24028566f80b3f16570e0a3254d5a9eabd5e) | 326,596 | 0.0065 |
 | 4 | Request with a 0.01 USDC bounty | [0x7bd5…2beb](https://explorer.arc.io/tx/0x7bd54a4279ca4ff9aa48cf8686bacf108369f82e6052273cbfa56dba527a2beb) | 106,774 | 0.0022 |
 | 5 | Fulfill of #4 by the relayer; the 0.01 USDC bounty is paid to the fulfiller | [0x3da5…4778](https://explorer.arc.io/tx/0x3da592f61c4975e273d4bd8b9d9691017449d4eaae2001dc3fadc8e49b954778) | 320,633 | 0.0064 |
-| 7 | FairAllocation `draw` (sale 1: 3 participants, 1 slot) | [0x524f…e5ab](https://explorer.arc.io/tx/0x524f6cc5f0ac2d4c442f7f53479004f613e408a10f4bb4f6bc71c030b987e5ab) | 172,205 | 0.0035 |
-| 8 | Fulfill with the FairAllocation callback | [0x1d44…dc62](https://explorer.arc.io/tx/0x1d447ecb7e135bff0d14dc7722e172645df26a17892e05850354fe36155fdc62) | 357,814 | 0.0072 |
-| 9 | FairAllocation `finalize` | [0xf2d0…a90d](https://explorer.arc.io/tx/0xf2d021ca69b5038c960dc60ee1101ddb33c53968cffb101ee61f632c5a75a90d) | 81,686 | 0.0017 |
-| 10 | Loser refund 1 | [0x1a7f…2a5a](https://explorer.arc.io/tx/0x1a7f909aebb2f42a6835f58d5c9206f82d2c9359e9302348b2109f4b92002a5a) | 85,560 | 0.0017 |
-| 11 | Loser refund 2 | [0xa05b…984c](https://explorer.arc.io/tx/0xa05b2d62136660cc7f993cc973d515aa639a6776b563fdc46e8856f405a1984c) | 68,460 | 0.0014 |
-| 12 | Treasury withdraw | [0xa8d0…e0d4](https://explorer.arc.io/tx/0xa8d0bad3fea9949e789bbaa2de577bfe16c7dbc204039599e9969ead4370e0d4) | 54,130 | 0.0011 |
+| 6 | FairAllocation `draw` (sale 1: 3 participants, 1 slot) | [0x524f…e5ab](https://explorer.arc.io/tx/0x524f6cc5f0ac2d4c442f7f53479004f613e408a10f4bb4f6bc71c030b987e5ab) | 172,205 | 0.0035 |
+| 7 | Fulfill with the FairAllocation callback | [0x1d44…dc62](https://explorer.arc.io/tx/0x1d447ecb7e135bff0d14dc7722e172645df26a17892e05850354fe36155fdc62) | 357,814 | 0.0072 |
+| 8 | FairAllocation `finalize` | [0xf2d0…a90d](https://explorer.arc.io/tx/0xf2d021ca69b5038c960dc60ee1101ddb33c53968cffb101ee61f632c5a75a90d) | 81,686 | 0.0017 |
+| 9 | Loser refund 1 | [0x1a7f…2a5a](https://explorer.arc.io/tx/0x1a7f909aebb2f42a6835f58d5c9206f82d2c9359e9302348b2109f4b92002a5a) | 85,560 | 0.0017 |
+| 10 | Loser refund 2 | [0xa05b…984c](https://explorer.arc.io/tx/0xa05b2d62136660cc7f993cc973d515aa639a6776b563fdc46e8856f405a1984c) | 68,460 | 0.0014 |
+| 11 | Treasury withdraw | [0xa8d0…e0d4](https://explorer.arc.io/tx/0xa8d0bad3fea9949e789bbaa2de577bfe16c7dbc204039599e9969ead4370e0d4) | 54,130 | 0.0011 |
 
 Measured gas: request 94,208; fulfill on a fresh round 292,424; batch of 2 on one round 326,596, so each extra request on an already verified round adds about 34k gas (about 0.0007 USDC). For comparison, a plain native USDC transfer is 21,000 gas.
 
