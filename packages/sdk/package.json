@@ -5,6 +5,14 @@
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
-  "files": ["dist"],
-  "peerDependencies": { "viem": "^2.56.0" }
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "viem": "^2.56.0"
+  },
+  "scripts": {
+    "abis": "node scripts/export-abis.mjs",
+    "abis:check": "node scripts/export-abis.mjs --check"
+  }
 }

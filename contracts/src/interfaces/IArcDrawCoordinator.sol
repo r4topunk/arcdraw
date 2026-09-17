@@ -54,6 +54,7 @@ interface IArcDrawCoordinator {
     // ---------------------------------------------------------------- errors
 
     error RoundTooSoon(uint64 round, uint64 minRound);
+    error RoundTooFar(uint64 round, uint64 maxRound);
     error CallbackGasLimitTooHigh(uint32 callbackGasLimit, uint32 maxCallbackGasLimit);
     error InvalidSignatureLength(uint256 length);
     error InvalidSignature(uint64 round);
@@ -73,7 +74,7 @@ interface IArcDrawCoordinator {
         external
         returns (uint256 requestId, uint64 round);
 
-    /// @notice Request randomness for a specific future round (>= minRequestRound()).
+    /// @notice Request randomness for a specific future round, in [minRequestRound(), maxRequestRound()].
     function requestRandomnessAtRound(uint64 round, uint32 callbackGasLimit, uint96 bounty)
         external
         returns (uint256 requestId);
@@ -102,6 +103,7 @@ interface IArcDrawCoordinator {
     function GENESIS_TIME() external view returns (uint64); // 1692803367
     function PERIOD() external view returns (uint64); // 3
     function MIN_ROUND_DELAY() external view returns (uint64); // 2
+    function MAX_ROUND_DELAY() external view returns (uint64); // 10_512_000 (~1 year of 3s rounds)
     function MAX_CALLBACK_GAS_LIMIT() external view returns (uint32); // 500_000
     function REQUEST_TIMEOUT() external view returns (uint64); // 3600 seconds after the round timestamp
 
@@ -113,7 +115,9 @@ interface IArcDrawCoordinator {
     function currentRound() external view returns (uint64);
     /// @notice currentRound() + MIN_ROUND_DELAY.
     function minRequestRound() external view returns (uint64);
-    /// @notice GENESIS_TIME + (round - 1) * PERIOD.
+    /// @notice currentRound() + MAX_ROUND_DELAY.
+    function maxRequestRound() external view returns (uint64);
+    /// @notice GENESIS_TIME + (round - 1) * PERIOD (GENESIS_TIME for round 0).
     function roundTimestamp(uint64 round) external view returns (uint64);
     /// @notice roundTimestamp(request.round) + REQUEST_TIMEOUT.
     function expiresAt(uint256 requestId) external view returns (uint64);

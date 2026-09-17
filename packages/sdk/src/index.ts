@@ -16,3 +16,5 @@ export const roundAt = (t: bigint): bigint =>
 
 /** Unix time (seconds) at which `round` is published. Mirrors roundTimestamp(). */
 export const roundTime = (round: bigint): bigint => QUICKNET.genesisTime + (round - 1n) * QUICKNET.period;
+
+export { arcDrawCoordinatorAbi, arcDrawConsumerAbi, fairAllocationAbi } from "./generated/abis.js";

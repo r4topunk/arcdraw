@@ -17,3 +17,15 @@ arc_testnet = "https://rpc.testnet.arc.io"
 
 [fmt]
 line_length = 120
+
+[fuzz]
+runs = 256
+
+[invariant]
+runs = 64
+depth = 50
+fail_on_revert = true
+
+[lint]
+exclude_lints = ["block-timestamp"]
+ignore = ["test/**/*.sol", "lib/**/*.sol"]

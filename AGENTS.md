@@ -6,7 +6,11 @@ Instructions for AI agents and contributors working in this repo. Everything is 
 
 ```bash
 git submodule update --init --recursive   # forge-std
-cd contracts && forge build && forge test  # contracts (Osaka EVM, EIP-2537)
+cd contracts && forge build && forge test  # contracts (Osaka EVM, EIP-2537); fork tests skip
+ARC_FORK_TESTS=true forge test --match-path 'test/fork/*' --threads 1   # read-only Arc mainnet fork (public RPC rate-limits)
+node script/gas-report.mjs                 # isolated gas scenarios -> docs/GAS.md
+forge snapshot                             # per-test gas -> contracts/.gas-snapshot
+node ../packages/sdk/scripts/export-abis.mjs   # ABIs -> packages/sdk/src/generated/abis.ts (--check in CI)
 pnpm install && pnpm -r build && pnpm -r test   # sdk, relayer, web (from Stage 2)
 ```
 
@@ -37,7 +41,7 @@ If code and spec disagree, fix the code or update the spec in the same commit, w
 ## Conventions
 
 - Solidity `^0.8.30`, `evm_version = "osaka"`, custom errors (no revert strings in our code), NatSpec on every external function, `forge fmt`.
-- Tests: `test/<Contract>.t.sol`. Fuzz round math and allocation. Real drand vectors live in `test/spike/` or fixtures, never fetched at test time.
+- Tests: `test/<Contract>.t.sol`. `test/mocks/TestCoordinator.sol` swaps only the BLS pairing for fake per-round signatures; real-signature coverage is in `ArcDrawCoordinatorReal.t.sol`, `GasScenarios.t.sol` and the fork suite. Fuzz round math and allocation. Real drand vectors live in `test/spike/` or fixtures, never fetched at test time.
 - Randomness derivation is `keccak256(abi.encode(drandRandomness, block.chainid, coordinator, requestId))`. The SDK must match byte for byte.
 - TypeScript: ESM, strict, `bigint` for chain values, viem `arc`/`arcTestnet` from `viem/chains`, vitest. `eth_getLogs` ranges are ≤ 10,000 blocks.
 - Logs (relayer): one JSON object per line with `ts, level, msg, service, runId, tickId, round, requestIds, txHash`.

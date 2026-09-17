@@ -1,0 +1,15 @@
+{
+  "fairAllocation_claimRefund": "97125",
+  "fairAllocation_createSale_bounty": "161839",
+  "fairAllocation_draw": "198077",
+  "fairAllocation_finalize_N5_K3": "84199",
+  "fairAllocation_subscribe": "98432",
+  "fulfillBatch_freshRound_5ids_bounty_noCallback": "446892",
+  "fulfill_freshRound_bounty_fairAllocationCallback": "345721",
+  "fulfill_freshRound_bounty_noCallback": "313410",
+  "fulfill_verifiedRound_bounty_noCallback": "75845",
+  "refund_bounty": "49659",
+  "requestRandomness_bounty": "119715",
+  "requestRandomness_noBounty": "94192",
+  "verifyRound_fresh": "257192"
+}

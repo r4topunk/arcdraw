@@ -16,6 +16,7 @@
 | Public key (G2, 96 bytes compressed) | `83cf0f28...5ece45a` (see `packages/sdk/src/index.ts`) |
 | GENESIS_TIME / PERIOD | 1692803367 / 3 s |
 | MIN_ROUND_DELAY | 2 |
+| MAX_ROUND_DELAY | 10,512,000 rounds (~1 year; caps `requestRandomnessAtRound`) |
 | MAX_CALLBACK_GAS_LIMIT | 500,000 |
 | REQUEST_TIMEOUT | 3600 s after the pinned round timestamp |
 | drand randomness | `sha256(signature48)` (matches the drand API `randomness` field) |
@@ -88,6 +89,7 @@ function getRequest(uint256 requestId) external view returns (Request memory);
 function roundRandomness(uint64 round) external view returns (bytes32);
 function currentRound() external view returns (uint64);
 function minRequestRound() external view returns (uint64);
+function maxRequestRound() external view returns (uint64);   // currentRound() + MAX_ROUND_DELAY
 function roundTimestamp(uint64 round) external view returns (uint64);
 function expiresAt(uint256 requestId) external view returns (uint64);
 function requestCount() external view returns (uint256);
@@ -98,6 +100,7 @@ event RandomnessFulfilled(uint256 indexed requestId, uint64 indexed round, addre
 event BountyRefunded(uint256 indexed requestId, address indexed requester, uint96 bounty);
 
 error RoundTooSoon(uint64 round, uint64 minRound);
+error RoundTooFar(uint64 round, uint64 maxRound);            // Stage 2: bounds round math, no uint64 overflow
 error CallbackGasLimitTooHigh(uint32 callbackGasLimit, uint32 maxCallbackGasLimit);
 error InvalidSignatureLength(uint256 length);
 error InvalidSignature(uint64 round);
@@ -114,7 +117,7 @@ Constructor: `constructor(address usdc)`. No owner, no pause, no upgrade. The pu
 ### 3.1 Semantics
 
 **request**
-1. Check `callbackGasLimit <= MAX_CALLBACK_GAS_LIMIT` and `round >= minRequestRound()`.
+1. Check `callbackGasLimit <= MAX_CALLBACK_GAS_LIMIT` and `minRequestRound() <= round <= maxRequestRound()` (the upper bound was added in Stage 2 so `roundTimestamp`/`expiresAt` can never overflow and bounties cannot be parked for decades).
 2. `requestId = ++requestCount` (ids start at 1).
 3. Store `Request{requester: msg.sender, round, callbackGasLimit, Pending, bounty, createdAt: block.timestamp, randomness: 0}`.
 4. If `bounty > 0`, call `USDC.transferFrom(msg.sender, this, bounty)` (SafeERC20-style return check).
@@ -125,8 +128,9 @@ A request for a round that is already verified is impossible, because the round 
 **verifyRound(round, sig)** (internal `_verify` shared by the fulfill paths)
 1. If `roundRandomness[round] != 0`, return it.
 2. Check `sig.length == 48`.
-3. Check `block.timestamp >= roundTimestamp(round)`, else revert `RoundNotReached`. This is cheap sanity: a valid signature cannot exist earlier, but the check avoids wasting gas.
-4. `BLS2.verifySingle(g1UnmarshalCompressed(sig), PK, hashToPoint(DST, sha256(uint64be(round))))`. Revert `InvalidSignature` unless both booleans are true. Wrap the library's string reverts: the whole call reverts either way.
+3. Check `round != 0 && block.timestamp >= roundTimestamp(round)`, else revert `RoundNotReached`. This is cheap sanity: a valid signature cannot exist earlier, but the check avoids wasting gas.
+3b. **Canonical encoding** (Stage 2): compression flag set, infinity flag clear, `x < p`, else `InvalidSignature`. Without this, `x + p` would decode to the same point but a different `sha256(sig)`, letting a fulfiller grind the randomness. Covered by `test_realBeacon_nonCanonicalXPlusPRejected`.
+4. `BLS2.verifySingle(g1UnmarshalCompressed(sig), PK, hashToPoint(DST, sha256(uint64be(round))))`. Revert `InvalidSignature` unless both booleans are true. Wrap the library's string reverts: the whole call reverts either way. Note: a well-formed but off-curve x makes the EIP-2537 precompile fail, which burns all gas forwarded to it; relayers must verify offchain first.
 5. `roundRandomness[round] = sha256(sig)`. Emit `RoundVerified`.
 
 **fulfill(requestId, sig)** (`nonReentrant`, transient storage lock)
@@ -205,6 +209,8 @@ contract FairAllocation is ArcDrawConsumer {
     function claimRefund(uint256 saleId) external;                                // losers only, after Finalized
     function isWinner(uint256 saleId, address account) external view returns (bool);
     function participants(uint256 saleId) external view returns (address[] memory);
+    // Stage 2 additions: getSale, participantCount, hasRefunded, saleOfRequest, bountyReclaimed,
+    // reclaimBounty(saleId) (forwards a coordinator-refunded bounty to the creator), MAX_PARTICIPANTS, CALLBACK_GAS.
 
     event SaleCreated(uint256 indexed saleId, address indexed creator, address treasury, uint96 pricePerSlot, uint32 slots, uint64 subscribeDeadline);
     event Subscribed(uint256 indexed saleId, address indexed account, uint32 index);
@@ -212,6 +218,7 @@ contract FairAllocation is ArcDrawConsumer {
     event SeedReceived(uint256 indexed saleId, uint256 indexed requestId, bytes32 seed);
     event Finalized(uint256 indexed saleId, uint32 winners, uint256 raised);
     event Refunded(uint256 indexed saleId, address indexed account, uint96 amount);
+    event BountyReclaimed(uint256 indexed saleId, address indexed creator, uint96 amount);
 
     error WrongPhase(uint256 saleId, Phase phase);
     error SubscriptionClosed(uint256 saleId);
@@ -220,6 +227,8 @@ contract FairAllocation is ArcDrawConsumer {
     error SaleFull(uint256 saleId);          // N == MAX_PARTICIPANTS
     error NotOversubscribed(uint256 saleId);
     error NotEligibleForRefund(uint256 saleId, address account);
+    error InvalidSaleParams();                     // treasury 0, price 0, slots 0 or deadline not in the future
+    error BountyNotReclaimable(uint256 saleId);
 }
 ```
 
@@ -230,7 +239,9 @@ for i in 0..K-1:
     j = i + uint256(keccak256(seed, i)) % (N - i)
     swap(idx[i], idx[j]); setBit(winnerBitmap, idx[i])
 ```
-The partial Fisher-Yates shuffle yields a uniform K-subset. Modulo bias is below 2^-240 for N <= 1000. The treasury receives `K * price` and losers pull their refunds. Expected finalize gas for N=1000, K=100 is about 250k (UNKNOWN until measured).
+The partial Fisher-Yates shuffle yields a uniform K-subset. Modulo bias is below 2^-240 for N <= 1000. The treasury receives `K * price` and losers pull their refunds. Measured finalize gas: N=1000, K=100 = 321,227; worst case N=1000, K=999 = 1,064,913 (see docs/GAS.md).
+
+Stage 2 details: with N <= K no draw happens, every subscriber wins and the bounty escrow returns to the creator in `finalize`. The callback uses 33,994 gas with cold storage (budget 60,000). If ArcDraw refunds the draw bounty (expiry), anyone calls `reclaimBounty` to forward it to the creator; if a late fulfillment lands before that call, the refunded bounty stays in the contract (known demo limitation). A blocklisted loser cannot claim, but cannot block anyone else either.
 
 ## 6. SDK (`@arcdraw/sdk`)
 
@@ -314,18 +325,23 @@ Next.js (App Router) + Tailwind + wagmi/viem with an injected wallet. The site c
 
 Checklist: CEI plus a transient reentrancy lock, no returndata copy on callback, only the ERC-20 6-decimal USDC interface, return-value checks on transfers, no native value handling (`payable` nowhere), no `selfdestruct`/`delegatecall`. Blocklisted requester or fulfiller: the bounty transfer reverts, so that party must use bounty 0. The vendored BLS library is unaudited, hence the **experimental** label.
 
-## 10. Gas estimates (20 gwei floor; 100k gas = 0.002 USDC)
+## 10. Gas (measured in Stage 2; 20 gwei floor, 100k gas = 0.002 USDC)
 
-| Call | Estimate | USDC | Basis |
-|---|---|---|---|
-| `requestRandomness` no bounty | ~75k | 0.0015 | 3 new slots + event |
-| `requestRandomness` with bounty | ~100k | 0.0020 | + USDC transferFrom |
-| `fulfill` fresh round | ~270k + callback | 0.0054 | 214k verify (spike) + sstore + event(sig) + transfer; mainnet eth_estimateGas precheck 270k |
-| `fulfill` verified round | ~45k + callback | 0.0009 | |
-| `fulfillBatch` n ids, fresh | ~240k + 35k*n + callbacks | | |
-| FairAllocation `finalize` N=1000,K=100 | ~250k (UNKNOWN) | 0.005 | memory shuffle + bitmap |
+Full table and method in `docs/GAS.md` (regenerate with `node contracts/script/gas-report.mjs`). Isolated transactions, real quicknet signatures:
 
-Measured numbers replace these in `deployments/arc-mainnet.json` → `proofs.measuredGas`.
+| Call | Gas | USDC |
+|---|---:|---:|
+| `requestRandomness` no bounty | 94,192 | 0.0019 |
+| `requestRandomness` with bounty | 119,715 | 0.0024 |
+| `fulfill` fresh round, bounty, no callback | 313,410 | 0.0063 |
+| `fulfill` fresh round, bounty, FairAllocation callback | 345,721 | 0.0069 |
+| `fulfill` verified round | 75,845 | 0.0015 |
+| `fulfillBatch` fresh round, 5 ids | 446,892 | 0.0089 |
+| `refund` | 49,659 | 0.0010 |
+| FairAllocation `finalize` N=1000, K=100 | 321,227 | 0.0064 |
+| Deploy both contracts (CREATE2) | ~6.95M | ~0.139 |
+
+Fresh-round `fulfill` is 313k, above the PRD's "<= 300k (+ callback)" target by ~4%: BLS verify (~214k) + canonical check + `RoundVerified` event carrying the 48-byte signature + cold request slots + USDC transfer. Accepting uncompressed signatures (v2) would save ~80k.
 
 ## 11. Test plan
 
@@ -347,9 +363,9 @@ Measured numbers replace these in `deployments/arc-mainnet.json` → `proofs.mea
 ## 12. Mainnet proof plan (Stage 3, owner-run)
 
 1. Owner funds a keystore account with about 2 USDC on Arc mainnet. Agents never handle keys.
-2. `forge script script/Deploy.s.sol --rpc-url arc_mainnet --account $FOUNDRY_ACCOUNT --broadcast` deploys ArcDrawCoordinator and FairAllocation.
+2. `cd contracts && forge script script/Deploy.s.sol --rpc-url arc_mainnet --account $FOUNDRY_ACCOUNT --broadcast` deploys ArcDrawCoordinator and FairAllocation through the CREATE2 deployer `0x4e59...956C` with salt `keccak256("arcdraw.v1")` (override `ARCDRAW_SALT`). Addresses are deterministic for a given bytecode, identical on testnet, and a rerun skips deployed contracts. Dry-run first without `--broadcast`.
 3. Verify both on explorer.arc.io (`forge verify-contract --verifier blockscout --verifier-url https://explorer.arc.io/api/`; UNKNOWN until tried).
-4. Record addresses and deploy blocks in `deployments/arc-mainnet.json`.
+4. `node contracts/script/write-deployment.mjs --chain 5042` records addresses, deploy txs and blocks from `broadcast/Deploy.s.sol/5042/run-latest.json` into `deployments/arc-mainnet.json` (no RPC, no keys). Then `pnpm --filter @arcdraw/sdk abis:check`.
 5. Start the relayer (dedicated key via env) and run `script/Proof.s.sol`, or the web app:
    a. EOA request, bounty 0, and fulfill by the relayer (`requestTx`, `fulfillTx`)
    b. Consumer request with a 0.01 USDC bounty and the callback (`callbackTx`)
